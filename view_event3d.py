@@ -242,7 +242,7 @@ def create_dummy_pkl_file(filename="dummy_events.pkl"):
     return filename
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     pkl_file_path="epem_sample.pkl"
     try:
         loaded_data = pd.read_pickle(pkl_file_path)
