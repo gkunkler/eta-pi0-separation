@@ -18,6 +18,7 @@ import os
 from PointNeXt.openpoints.models.build import MODELS
 from PointNeXt.openpoints.models.layers import create_convblock1d
 
+#MLP Regression head
 @MODELS.register_module()
 class RegressionHead(nn.Module):
 	def __init__(self, encoder_out_channnels: int, out_dim: int=1, mlp_channels: List[int]=[512,256], norm_args=None, act_args=None, **kwargs):

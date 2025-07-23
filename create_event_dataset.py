@@ -7,6 +7,7 @@ from typing import Union, Tuple, List, Optional
 import os 
 from PointNeXt.openpoints.transforms import build_transforms_from_cfg
 
+#easilt fecthable
 class EventPointCloudDataset(Dataset):
 	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None):
 		self.h5_file_path=h5_file_path

@@ -6,7 +6,7 @@ import gc
 
 
 pkl_file_path = "epem_sample.pkl"
-hdf5_output_path = "epem_sample_restructured_chunked.h5" # New HDF5 file name for this method
+hdf5_output_path = "epem_sample_restructured_chunked.h5" # New HDF5 file name for this method 
 
 #Columns in the original DataFrame that contain arrays/lists (point cloud data)
 POINT_CLOUD_COLS = ['pc_x', 'pc_y', 'pc_z']
