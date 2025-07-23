@@ -180,7 +180,7 @@ def view_event3d(data, index, coord_type="all", len1=100, len2=500, figsize=[800
                 height=figsize[1]
             )
 
-    # Show the plot and write to html if specified
+    # Show the plot and write to html if specified 
     fig.show()
     if html_name is not None: fig.write_html(f"{html_name}.html")
 
