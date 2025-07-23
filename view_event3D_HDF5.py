@@ -13,6 +13,8 @@ from matplotlib.ticker import PercentFormatter
 from typing import Union, Tuple, List, Optional
 import os 
 
+#from create_event_dataset import EventPointCloudDataset
+
 HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
 
 #Get event_id based on runNo, subRunNo, eventNo
