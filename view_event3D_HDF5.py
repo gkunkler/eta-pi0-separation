@@ -8,6 +8,7 @@ import plotly
 import plotly.graph_objects as go
 import plotly.figure_factory as ff
 import matplotlib.pyplot as plt
+import h5py
 from matplotlib import colors
 from matplotlib.ticker import PercentFormatter
 from typing import Union, Tuple, List, Optional
@@ -15,7 +16,8 @@ import os
 
 #from create_event_dataset import EventPointCloudDataset DONT NEED
 
-HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
+#HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
+HDF5_FILE_PATH = "NeutrinoML_TN_ts818547.h5"
 
 #Get event_id based on runNo, subRunNo, eventNo
 def get_event_id_from_rse(event_metadata_df: pd.DataFrame, rse: List[int]) -> Optional[int]:
@@ -207,14 +209,80 @@ def view_event3d_hdf5(
 
     return None
 
+def print_hdf5_info(obj, indent=''):
+    """
+    Recursively prints information about an HDF5 object (group or dataset).
+    """
+    if isinstance(obj, h5py.Group):
+        # It's a Group
+        print(f"{indent}Group: {obj.name}/")
+        print(f"{indent}  Attributes:")
+        if obj.attrs:
+            for key, val in obj.attrs.items():
+                print(f"{indent}    {key}: {val}")
+        else:
+            print(f"{indent}    (No attributes)")
 
+        # Recursively visit members
+        for key in obj.keys():
+            print_hdf5_info(obj[key], indent + '  ')
+    elif isinstance(obj, h5py.Dataset):
+        # It's a Dataset
+        print(f"{indent}Dataset: {obj.name}")
+        print(f"{indent}  Shape: {obj.shape}")
+        print(f"{indent}  Dtype: {obj.dtype}")
+        print(f"{indent}  Max/Min Value (sample): ", end='')
+        try:
+            # Attempt to get min/max for numerical data
+            if np.issubdtype(obj.dtype, np.number):
+                # Sample a small portion for large datasets to avoid loading all
+                if obj.size > 100000: # Adjust threshold as needed
+                    sample_data = obj[()] # Load a small sample, e.g., first 1000 elements
+                    print(f"[{np.min(sample_data):.4g}, {np.max(sample_data):.4g}] (sampled)")
+                else:
+                    print(f"[{np.min(obj[()]):.4g}, {np.max(obj[()]):.4g}]")
+            else:
+                print("(Non-numeric data)")
+        except Exception as e:
+            print(f"(Could not get min/max: {e})")
+
+        print(f"{indent}  Attributes:")
+        if obj.attrs:
+            for key, val in obj.attrs.items():
+                print(f"{indent}    {key}: {val}")
+        else:
+            print(f"{indent}    (No attributes)")
+    else:
+        print(f"{indent}Unknown HDF5 object type: {type(obj)}")
+
+def view_hdf5_categories(file_path):
+    """
+    Opens an HDF5 file and prints its hierarchical structure and properties.
+    """
+    try:
+        with h5py.File(file_path, 'r') as f:
+            print(f"\n--- HDF5 File Info: {file_path} ---")
+            print(f"Root Attributes:")
+            if f.attrs:
+                for key, val in f.attrs.items():
+                    print(f"  {key}: {val}")
+            else:
+                print("  (No root attributes)")
+            
+            print_hdf5_info(f) # Start recursion from the root group
+            print(f"--- End HDF5 File Info ---")
+
+    except FileNotFoundError:
+        print(f"Error: File not found at {file_path}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
 if __name__ == "__main__":
     # Ensure the HDF5 file exists from the conversion script
     if not os.path.exists(HDF5_FILE_PATH):
         print(f"Error: HDF5 file '{HDF5_FILE_PATH}' not found. Please run the conversion script first.")
         sys.exit(1)
-
+    view_hdf5_categories(HDF5_FILE_PATH)
     print(f"\nAttempting to view events from HDF5 file '{HDF5_FILE_PATH}'.")
 
     # 1. View an event using an integer index
