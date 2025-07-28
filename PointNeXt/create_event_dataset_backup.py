@@ -7,18 +7,13 @@ from typing import Union, Tuple, List, Optional
 import os 
 from openpoints.transforms import build_transforms_from_cfg
 import time
-from tqdm import tqdm
 
 #easilt fecthable
 class EventPointCloudDataset(Dataset):
 	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None, max_samples=None):
 		self.h5_file_path=h5_file_path
 		self.num_points=num_points
-		if use_transforms:
-			self.transforms=build_transforms_from_cfg(use_transforms)
 
-		else:
-			self.transforms=None
 		self.h5_file = None 
 		self.hdf5_store = None 
 
@@ -32,34 +27,17 @@ class EventPointCloudDataset(Dataset):
 		self.num_samples =len(self.event_metadata_df)
 		print(f"Dataset initialized with {self.num_samples} events from {h5_file_path}.")
 
-		self.all_preloaded_pc_data={}
-		self.all_preloaded_pc_targets={}
-		rse_tuples_to_preload = []
-		for index, row in self.event_metadata_df.iterrows():
-			rse_tuple = (row['runNo'], row['subRunNo'], row['eventNo'])
-			rse_tuples_to_preload.append(rse_tuple)
-			self.all_preloaded_pc_targets[rse_tuple] = row['opang']
-		print(f"Preloading {len(rse_tuples_to_preload)} sets of PC data into RAM (this might take a moment if many samples)...")
-		with pd.HDFStore(h5_file_path, 'r') as preload_store: 
-			for rse_tuple in tqdm(rse_tuples_to_preload, desc="Preloading PC data"):
-				run_no, sub_run_no, event_no = rse_tuple
-				pc_data = preload_store.select('pc_points', where=f"runNo == {run_no} and subRunNo == {sub_run_no} and eventNo == {event_no}")
-				self.all_preloaded_pc_data[rse_tuple] = {
-                    'x': pc_data["x"].values,
-                    'y': pc_data["y"].values,
-                    'z': pc_data["z"].values
-                }
-		print(f"Finished preloading {len(self.all_preloaded_pc_data)} PC event data sets into RAM.")
+		if use_transforms:
+			self.transforms=build_transforms_from_cfg(use_transforms)
 
-
+		else:
+			self.transforms=None
 
 	def __len__(self):
 			return self.num_samples
 
 	@staticmethod
 	def worker_init_fn(worker_id):
-		pass
-		"""
 		worker_info = torch.utils.data.get_worker_info()
 		dataset_obj = worker_info.dataset
 		if isinstance(dataset_obj, torch.utils.data.Subset):
@@ -68,18 +46,22 @@ class EventPointCloudDataset(Dataset):
 			original_dataset_for_worker = dataset_obj 
 		original_dataset_for_worker.hdf5_store = pd.HDFStore(original_dataset_for_worker.h5_file_path, 'r')
 		print(f"HDFStore opened in worker {worker_id}") 
-		"""
 
 
 	def __getitem__(self,indx):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
 			hdf5_select_start = time.time()
-			rse_tuple = (event_meta_row['runNo'], event_meta_row['subRunNo'], event_meta_row['eventNo'])
 			current_event_meta = self.event_metadata_df.iloc[indx]
+			run_no = current_event_meta['runNo']
+			sub_run_no= current_event_meta['subRunNo']
+			event_no = current_event_meta['eventNo']
+			opang = current_event_meta['opang']
+			num_pc= current_event_meta['nPC']
+			num_sp = current_event_meta['nSP']
 
-			pc_data = self.all_preloaded_pc_data[rse_tuple]
-			opang =self.all_preloaded_pc_targets[rse_tuple]
+			pc_data = hdf5_store.select('pc_points', where=f"runNo == {run_no} and subRunNo == {sub_run_no} and eventNo == {event_no}")
+			hdf5_select_end = time.time()
 			print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
 
 

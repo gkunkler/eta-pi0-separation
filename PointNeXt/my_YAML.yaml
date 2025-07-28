@@ -22,14 +22,15 @@ root_dir: 'log_regression'
 
 
 train:
-  print_freq: 10
-  num_workers: 4
+  print_freq: 1
+  num_workers: 0
   batch_size: 32
   num_epochs: 50
   val_freq: 2
   step_per_update: 1
   start_epoch: 0
   sched_on_epoch: True
+  save_freq: 1
 
 
 #dataset config
