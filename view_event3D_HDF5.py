@@ -16,8 +16,8 @@ import os
 
 #from create_event_dataset import EventPointCloudDataset DONT NEED
 
-#HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
-HDF5_FILE_PATH = "NeutrinoML_TN_ts818547.h5"
+HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
+#HDF5_FILE_PATH = "NeutrinoML_TN_ts818547.h5"
 
 #Get event_id based on runNo, subRunNo, eventNo
 def get_event_id_from_rse(event_metadata_df: pd.DataFrame, rse: List[int]) -> Optional[int]:
@@ -282,18 +282,20 @@ if __name__ == "__main__":
     if not os.path.exists(HDF5_FILE_PATH):
         print(f"Error: HDF5 file '{HDF5_FILE_PATH}' not found. Please run the conversion script first.")
         sys.exit(1)
-    view_hdf5_categories(HDF5_FILE_PATH)
+    #view_hdf5_categories(HDF5_FILE_PATH)
     print(f"\nAttempting to view events from HDF5 file '{HDF5_FILE_PATH}'.")
 
+    
     # 1. View an event using an integer index
-    event_index_to_view = 0 # Example: View the first event
-    '''
+    event_index_to_view = 49 # Example: View the first event
+    
     print(f"\nViewing event by integer index: {event_index_to_view}")
     view_event3d_hdf5(HDF5_FILE_PATH, event_index_to_view, coord_type="all", html_name="event_view_int_index_from_hdf5")
-''' 
+
     # 2. View an event using RSE (Run, SubRun, Event)
     # For demonstration, let's assume event_id=0 corresponds to [1001, 1, 10] from the dummy data structure.
     # Replace with an actual RSE from your converted data.
+    '''
     try:
         with pd.HDFStore(HDF5_FILE_PATH, 'r') as store:
             first_event_rse_from_hdf5 = store.select('event_metadata', columns=['runNo', 'subRunNo', 'eventNo']).iloc[0][['runNo', 'subRunNo', 'eventNo']].tolist()
@@ -302,3 +304,5 @@ if __name__ == "__main__":
         view_event3d_hdf5(HDF5_FILE_PATH, event_rse_to_view, coord_type="all", html_name="event_view_rse_from_hdf5")
     except Exception as e:
         print(f"Could not determine an RSE for testing: {e}. Please manually provide a valid RSE from your HDF5 file.")
+        '''
+    

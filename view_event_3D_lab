@@ -1,0 +1,492 @@
+import h5py
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from typing import Union, Tuple, List, Optional
+import os
+import sys
+
+# --- HDF5 File Path (IMPORTANT: Make sure this is correct for your file) ---
+HDF5_FILE_PATH = "NeutrinoML_TN_ts818547.h5" 
+
+# --- Helper Functions ---
+
+def get_rse_tuple_from_event_id_array(event_id_array: np.ndarray) -> Tuple[int, int, int]:
+    """Converts a (3,) event_id array [runNo, subRunNo, eventNo] to a tuple."""
+    return tuple(event_id_array.flatten())
+
+def get_event_rse_list(hdf5_file_path: str) -> np.ndarray:
+    """Reads all [runNo, subRunNo, eventNo] from /event_table/event_id dataset using h5py."""
+    try:
+        with h5py.File(hdf5_file_path, 'r') as f:
+            if '/event_table/event_id' in f:
+                return f['/event_table/event_id'][()]
+            else:
+                print(f"Error: Dataset '/event_table/event_id' not found in '{hdf5_file_path}'.")
+                return np.array([])
+    except Exception as e:
+        print(f"Error reading event RSEs from h5py: {e}")
+        return np.array([])
+
+def load_table_data_h5py(hdf5_file_path: str, group_name: str) -> pd.DataFrame:
+    """
+    Loads data from a specified HDF5 group (e.g., '/spacepoint_table/') into a DataFrame using h5py.
+    Handles multi-dimensional datasets by storing them as columns of arrays/lists.
+    """
+    data_dict = {}
+    try:
+        with h5py.File(hdf5_file_path, 'r') as f:
+            if group_name in f:
+                h5_group = f[group_name]
+                for key in h5_group.keys():
+                    dataset_path = f"{group_name}/{key}"
+                    if dataset_path in f:
+                        dataset = f[dataset_path][()]
+                        
+                        if dataset.ndim == 2 and dataset.shape[1] > 1:
+                            data_dict[key] = [arr for arr in dataset] # Store as list of arrays/rows
+                        elif dataset.ndim == 1: # Already 1D
+                            data_dict[key] = dataset
+                        elif dataset.ndim == 2 and dataset.shape[1] == 1: # (N,1) arrays
+                             data_dict[key] = dataset.flatten() # Flatten to 1D
+                        else: # Other cases (e.g., 0D or >2D, should not happen often with this data)
+                            data_dict[key] = dataset
+
+                if data_dict:
+                    df = pd.DataFrame(data_dict)
+                    return df
+                else:
+                    print(f"No datasets found in group '{group_name}'. Returning empty DataFrame.")
+                    return pd.DataFrame()
+            else:
+                print(f"Error: Group '{group_name}' not found in '{hdf5_file_path}'. Returning empty DataFrame.")
+                return pd.DataFrame()
+    except Exception as e:
+        print(f"Error loading data from group '{group_name}' with h5py: {e}")
+        return pd.DataFrame()
+
+
+def filter_table_by_rse(hdf5_file_path: str, table_group_name: str, rse_target: Tuple[int, int, int]) -> pd.DataFrame:
+    """
+    Loads a table's data using h5py and then filters it by RSE.
+    """
+    full_table_df = load_table_data_h5py(hdf5_file_path, table_group_name)
+    
+    if full_table_df.empty:
+        return pd.DataFrame() # Return empty if data loading failed
+
+    # Check if 'event_id' column exists
+    if 'event_id' not in full_table_df.columns:
+        print(f"Warning: Table from group '{table_group_name}' does not have an 'event_id' column. Cannot filter by RSE.")
+        return pd.DataFrame()
+
+    try:
+        # The 'event_id' column will now contain NumPy arrays, so convert them to tuples for comparison
+        table_rse_tuples = [tuple(map(int, row)) for row in full_table_df['event_id'].values]
+
+        # Create a boolean mask for rows that match the target RSE
+        rse_matches = np.array([rse == rse_target for rse in table_rse_tuples])
+        
+        return full_table_df[rse_matches].copy() # Return a copy for safety
+    except Exception as e:
+        print(f"Error filtering table '{table_group_name}' by RSE {rse_target}: {e}")
+        return pd.DataFrame()
+
+# --- Helper to safely get scalar value from Series element ---
+def get_scalar_value(series_element):
+    """Safely extracts a scalar value from a Series element, handling numpy arrays or direct scalars."""
+    if isinstance(series_element, np.ndarray):
+        # Handle byte strings like b'Decay' that come as np.ndarray(b'Decay')
+        if series_element.dtype.kind == 'S':
+            return series_element.item().decode('utf-8')
+        return series_element.item() # For numerical numpy arrays (e.g., np.array(10))
+    return series_element # Already a scalar (e.g., int, float, str)
+
+def get_space_points_and_features_for_event(
+    hdf5_file_path: str,
+    rse_tuple: Tuple[int, int, int],
+    point_color_by: Optional[str] = None # e.g., 'integral', 'energy'
+) -> Tuple[np.ndarray, Optional[np.ndarray], int]:
+    """
+    Retrieves space points (XYZ) and optional features for coloring.
+    Returns (positions (N,3), features (N,1) or None, num_points).
+    """
+    space_points_data = filter_table_by_rse(hdf5_file_path, '/spacepoint_table', rse_tuple)
+    
+    if space_points_data.empty:
+        return np.array([]), None, 0 # No points found
+
+    positions = np.vstack(space_points_data["position"].values)
+    num_pts = positions.shape[0]
+    
+    features_for_color = None
+    if point_color_by == 'integral':
+        hits_data_for_event = filter_table_by_rse(hdf5_file_path, '/hit_table', rse_tuple)
+        
+        if not hits_data_for_event.empty and 'hit_id' in hits_data_for_event.columns and 'integral' in hits_data_for_event.columns:
+            # As per schema, Plane 2 is the collection plane with vertical wires (parallel to Y-axis).
+            # We are using the integral from the hit on Plane 2 for each space point.
+            hit_id_to_integral = {get_scalar_value(hit_id): get_scalar_value(integral) for hit_id, integral in zip(hits_data_for_event['hit_id'].values, hits_data_for_event['integral'].values)}
+            
+            integral_values = np.array([
+                hit_id_to_integral.get(sp_hit_id[2], 0.0) # Using index 2 for Plane 2's hit ID
+                for sp_hit_id in space_points_data['hit_id'].values
+            ], dtype=np.float32).reshape(-1, 1)
+
+            features_for_color = integral_values
+        else:
+            print(f"Warning: Could not get integral features for RSE {rse_tuple}. 'hit_table' or required columns missing.")
+
+    return positions, features_for_color, num_pts
+
+def get_particle_trajectory_data(hdf5_file_path: str, rse_tuple: Tuple[int, int, int]):
+    """
+    Retrieves particle start/end positions, PDG codes, and momentum for a given RSE.
+    Calculates total energy using relativistic formula (in GeV).
+    Returns (electron_info, positron_info).
+    Each info dict contains: {'start_pos': [x,y,z], 'end_pos': [x,y,z], 'energy': float, 'momentum_vec': [px,py,pz], 'g4_id': int, 'daughters': List[Dict], 'start_process': str}
+    """
+    particle_data = filter_table_by_rse(hdf5_file_path, '/particle_table', rse_tuple)
+    event_data = filter_table_by_rse(hdf5_file_path, '/event_table', rse_tuple) # Load event_table for lep_energy, is_cc
+    
+    # Initialize info dicts with g4_id as None and empty daughters list
+    electron_info = {'start_pos': None, 'end_pos': None, 'energy': None, 'momentum_vec': None, 'g4_id': None, 'daughters': [], 'start_process': None}
+    positron_info = {'start_pos': None, 'end_pos': None, 'energy': None, 'momentum_vec': None, 'g4_id': None, 'daughters': [], 'start_process': None}
+
+    # Rest mass of electron/positron in GeV/c^2 (converted from MeV/c^2)
+    ELECTRON_REST_MASS_GEV = 0.00051099895 
+
+    # Get event-level truth for primary lepton if available
+    is_cc = None
+    lep_energy_event = None
+    nu_pdg_event = None
+
+    if not event_data.empty:
+        first_event_row = event_data.iloc[0]
+        is_cc = get_scalar_value(first_event_row.get('is_cc'))
+        lep_energy_event = get_scalar_value(first_event_row.get('lep_energy'))
+        nu_pdg_event = get_scalar_value(first_event_row.get('nu_pdg'))
+
+    # First pass to identify primary electron and positron and store their g4_ids
+    found_electron_g4_id = None
+    found_positron_g4_id = None
+
+    for idx, row in particle_data.iterrows():
+        # Use the new safe getter for all scalar row accesses
+        g4_pdg = get_scalar_value(row['g4_pdg'])
+        g4_id = get_scalar_value(row['g4_id'])
+        momentum_magnitude = get_scalar_value(row['momentum']) # This is in GeV, as per schema
+        start_process = get_scalar_value(row['start_process']) 
+        
+        start_pos = row['start_position_corr']
+        end_pos = row['end_position_corr']
+        
+        # Determine energy_val: Use lep_energy for primary electron if CC and it matches, otherwise calculate from momentum
+        calculated_energy_val = None
+        # Check if this is the primary electron from a CC interaction
+        # PDG code for electron is -11. For electron neutrino (ve) CC, the primary lepton is e-.
+        # Ensure is_cc is 1 (Charged Current), nu_pdg_event is 12 (electron neutrino), and lep_energy is available
+        if (g4_pdg == -11 and start_process == "Primary" and 
+            is_cc == 1 and nu_pdg_event == 12 and lep_energy_event is not None):
+            calculated_energy_val = lep_energy_event # Use direct truth lep_energy from event_table
+        else:
+            # For all other particles (positrons, secondary electrons, non-electron primary leptons, etc.)
+            # use relativistic calculation from momentum with consistent GeV units.
+            total_energy_sq = momentum_magnitude**2 + ELECTRON_REST_MASS_GEV**2
+            calculated_energy_val = np.sqrt(total_energy_sq) 
+
+        # Calculate momentum vector using start/end positions and magnitude
+        direction_vector = np.array(end_pos) - np.array(start_pos)
+        dir_norm = np.linalg.norm(direction_vector)
+        momentum_vec = np.zeros(3, dtype=np.float32)
+        if dir_norm > 0:
+            momentum_unit_vector = direction_vector / dir_norm
+            momentum_vec = momentum_unit_vector * momentum_magnitude
+        
+        current_particle_info = {
+            'start_pos': start_pos.tolist(),
+            'end_pos': end_pos.tolist(),
+            'energy': calculated_energy_val,
+            'momentum_vec': momentum_vec.tolist(),
+            'g4_id': g4_id,
+            'start_process': start_process # Store start_process for daughter check
+        }
+
+        if g4_pdg == 11 and positron_info['g4_id'] is None: # Positron (PDG 11)
+            positron_info.update(current_particle_info)
+            found_positron_g4_id = current_particle_info['g4_id']
+        elif g4_pdg == -11 and electron_info['g4_id'] is None: # Electron (PDG -11)
+            electron_info.update(current_particle_info)
+            found_electron_g4_id = current_particle_info['g4_id']
+        
+        # Break once both primary e- and e+ are found
+        if electron_info['g4_id'] is not None and positron_info['g4_id'] is not None:
+            break
+
+    # Second pass: Find daughters of the identified electron and positron
+    for idx, row in particle_data.iterrows():
+        parent_id = get_scalar_value(row['parent_id'])
+        current_g4_id = get_scalar_value(row['g4_id'])
+
+        # Skip the primary electron/positron themselves
+        if current_g4_id == found_electron_g4_id or current_g4_id == found_positron_g4_id:
+            continue
+        
+        daughter_info_dict = {
+            'g4_id': current_g4_id,
+            'g4_pdg': get_scalar_value(row['g4_pdg']),
+            'momentum': get_scalar_value(row['momentum']),
+            'category': get_scalar_value(row['category']),
+            'start_process': get_scalar_value(row['start_process'])
+        }
+
+        if found_positron_g4_id is not None and parent_id == found_positron_g4_id:
+            positron_info['daughters'].append(daughter_info_dict)
+        elif found_electron_g4_id is not None and parent_id == found_electron_g4_id:
+            electron_info['daughters'].append(daughter_info_dict)
+
+    return electron_info, positron_info
+
+
+# The main function to view an event in 3D interactive!
+def view_event3d_adapted(
+    hdf5_file_path: str, 
+    index_or_rse: Union[int, List[int]], 
+    point_cloud_type: str = "spacepoint", 
+    point_color_by: Optional[str] = None, # e.g., 'integral', 'energy'
+    particle_line_length_scale: float = 100.0, # Scale factor for drawing particle lines (adjust as needed)
+    figsize: List[int] = [800, 800],
+    html_name: Optional[str] = None
+):
+    """
+    Args:
+        hdf5_file_path: Path to the HDF5 file containing the event data.
+        index_or_rse: Can be int (index in the list of events) or [runNo, subRunNo, eventNo].
+        point_cloud_type: Type of point cloud to plot (e.g., "spacepoint").
+                          Currently only "spacepoint" is fully implemented.
+        point_color_by: Optional. Dataset name to use for coloring points (e.g., 'integral').
+                        Requires implementation in get_space_points_and_features_for_event.
+        particle_line_length_scale: Scaling for drawing particle lines based on momentum.
+        figsize: Figure size [width, height].
+        html_name: If provided, saves the plot as an HTML file.
+
+    Returns: None
+        Displays a plotly figure.
+    """
+    try:
+        all_event_rse_ids = get_event_rse_list(hdf5_file_path) 
+        if all_event_rse_ids.size == 0:
+            print("No events found in /event_table/event_id. Exiting.")
+            return
+
+        target_rse_tuple = None
+        if isinstance(index_or_rse, int):
+            event_index_in_table = index_or_rse
+            if event_index_in_table < 0 or event_index_in_table >= len(all_event_rse_ids):
+                print(f"Error: Index {event_index_in_table} out of bounds for {len(all_event_rse_ids)} events.")
+                return
+            target_rse_tuple = get_rse_tuple_from_event_id_array(all_event_rse_ids[event_index_in_table])
+        elif isinstance(index_or_rse, list) and len(index_or_rse) == 3:
+            target_rse_tuple = tuple(int(x) for x in index_or_rse)
+            matched_indices = np.where(np.all(all_event_rse_ids == target_rse_tuple, axis=1))[0]
+            if not matched_indices.size > 0:
+                print(f"Error: RSE {index_or_rse} not found in event table.")
+                return
+            event_index_in_table = matched_indices[0]
+        else:
+            print("Not a valid index or RSE format. Must be int or [run, subrun, event].")
+            return None
+
+        run_no_val, sub_run_no_val, event_no_val = target_rse_tuple
+        
+        # --- Retrieve Event-Level Truth Information for Context ---
+        event_truth_data = filter_table_by_rse(hdf5_file_path, '/event_table', target_rse_tuple)
+        nu_energy = None
+        nu_pdg = None
+        is_cc = None
+        nu_vtx = None
+        nu_vtx_corr = None # NEW: For corrected vertex
+
+        if not event_truth_data.empty:
+            first_row = event_truth_data.iloc[0]
+            # Use .get() method and get_scalar_value for safe access
+            nu_energy = get_scalar_value(first_row.get('nu_energy'))
+            nu_pdg = get_scalar_value(first_row.get('nu_pdg'))
+            is_cc = get_scalar_value(first_row.get('is_cc'))
+            
+            # Get corrected neutrino vertex
+            nu_vtx_corr_raw = first_row.get('nu_vtx_corr')
+            if nu_vtx_corr_raw is not None and isinstance(nu_vtx_corr_raw, np.ndarray):
+                nu_vtx_corr = nu_vtx_corr_raw.tolist() 
+            elif nu_vtx_corr_raw is not None:
+                nu_vtx_corr = nu_vtx_corr_raw # Assume it's already a list/tuple if not array
+
+            # Prepare for display, handling potential None values gracefully
+            nu_energy_display = f"{nu_energy:.4f} GeV" if nu_energy is not None else "N/A"
+            nu_pdg_display = f"{nu_pdg} (12=nu_e, 14=nu_mu)" if nu_pdg is not None else "N/A"
+            is_cc_display = ('Charged Current (CC)' if is_cc == 1 else 'Neutral Current (NC)') if is_cc is not None else "N/A"
+            nu_vtx_corr_display = f"X={nu_vtx_corr[0]:.2f} cm, Y={nu_vtx_corr[1]:.2f} cm, Z={nu_vtx_corr[2]:.2f} cm" if nu_vtx_corr is not None else "N/A"
+
+            print(f"\n--- Event Truth Information for RSE {target_rse_tuple} ---")
+            print(f"  Neutrino PDG: {nu_pdg_display}")
+            print(f"  Neutrino Energy: {nu_energy_display}")
+            print(f"  Interaction Type: {is_cc_display}")
+            print(f"  Neutrino Vertex (Corrected): {nu_vtx_corr_display}") # Label changed to Corrected
+            print("--------------------------------------------------")
+        else:
+            print(f"\n--- Event Truth Information for RSE {target_rse_tuple} ---")
+            print("  No event truth data found for this RSE.")
+            print("--------------------------------------------------")
+
+        fig = go.Figure()
+
+        # --- Plot Point Cloud (Space Points) ---
+        num_pts = 0 
+        if point_cloud_type == "spacepoint" or point_cloud_type == "all":
+            positions, colors_data, num_pts = get_space_points_and_features_for_event(
+                hdf5_file_path, target_rse_tuple, point_color_by=point_color_by)
+
+            if num_pts > 0:
+                marker_dict = dict(size=1)
+                if colors_data is not None:
+                    marker_dict.update(color=colors_data.flatten(), colorscale="jet", showscale=True,
+                                        colorbar=dict(title=f"{point_color_by}"))
+                
+                fig.add_trace(go.Scatter3d(x=positions[:, 0], y=positions[:, 1], z=positions[:, 2], 
+                                             showlegend=True, name="Space Points",
+                                             mode="markers", marker=marker_dict,
+                                             text=[f"x={positions[i,0]:.2f}<br>y={positions[i,1]:.2f}<br>z={positions[i,2]:.2f}<br>{point_color_by if point_color_by else ''}={colors_data[i,0]:.2f}" for i in range(num_pts)] if colors_data is not None else None,
+                                             hoverinfo="text" if colors_data is not None else "x,y,z"
+                                             ))
+        
+        # --- Plot Particle Trajectories ---
+        electron_info, positron_info = get_particle_trajectory_data(hdf5_file_path, target_rse_tuple)
+
+        # Electron trajectory
+        if electron_info['start_pos'] is not None and electron_info['momentum_vec'] is not None:
+            e_start = np.array(electron_info['start_pos'])
+            e_vec = np.array(electron_info['momentum_vec'])
+            e_vec_norm = np.linalg.norm(e_vec)
+            if e_vec_norm > 0:
+                e_dir_unit = e_vec / e_vec_norm
+                e_end = e_start + e_dir_unit * particle_line_length_scale
+                fig.add_trace(go.Scatter3d(
+                    x=[e_start[0], e_end[0]], y=[e_start[1], e_end[1]], z=[e_start[2], e_end[2]],
+                    name=f"e- ({electron_info['energy']:.2f} GeV)", mode="lines", line=dict(color="black", width=5) # Changed label to GeV
+                ))
+            else:
+                 fig.add_trace(go.Scatter3d(
+                    x=[e_start[0]], y=[e_start[1]], z=[e_start[2]],
+                    name=f"e- ({electron_info['energy']:.2f} GeV)", mode="markers", marker=dict(size=5, color="black") # Changed label to GeV
+                ))
+
+        # Positron trajectory
+        if positron_info['start_pos'] is not None and positron_info['momentum_vec'] is not None:
+            p_start = np.array(positron_info['start_pos'])
+            p_vec = np.array(positron_info['momentum_vec'])
+            p_vec_norm = np.linalg.norm(p_vec)
+            if p_vec_norm > 0:
+                p_dir_unit = p_vec / p_vec_norm
+                p_end = p_start + p_dir_unit * particle_line_length_scale
+                fig.add_trace(go.Scatter3d(
+                    x=[p_start[0], p_end[0]], y=[p_start[1], p_end[1]], z=[p_start[2], p_end[2]],
+                    name=f"e+ ({positron_info['energy']:.2f} GeV)", mode="lines", line=dict(color="red", width=5) # Changed label to GeV
+                ))
+            else:
+                 fig.add_trace(go.Scatter3d(
+                    x=[p_start[0]], y=[p_start[1]], z=[p_start[2]],
+                    name=f"e+ ({positron_info['energy']:.2f} GeV)", mode="markers", marker=dict(size=5, color="red") # Changed label to GeV
+                ))
+
+
+        
+        title_text = (f"Event RSE: {run_no_val}, {sub_run_no_val}, {event_no_val}"
+                      f"<br>Space Points: {num_pts} ({point_color_by if point_color_by else 'No Color Feature'})")
+        
+        if electron_info['energy'] is not None:
+            title_text += f"<br>e- Energy: {electron_info['energy']:.2f} GeV" 
+        if positron_info['energy'] is not None:
+            title_text += f", e+ Energy: {positron_info['energy']:.2f} GeV" 
+
+        fig.update_layout(
+            title=title_text,
+            title_x=0.5,
+            scene=dict(xaxis_title="x [cm]", yaxis_title="y [cm]", zaxis_title="z [cm]"),
+            legend=dict(x=0, y=1, traceorder="reversed", itemsizing="constant"),
+            autosize=False,
+            width=figsize[0],
+            height=figsize[1]
+        )
+
+        fig.show()
+        if html_name is not None:
+            fig.write_html(f"{html_name}.html")
+
+        # --- Print Daughter Information ---
+        print(f"\n--- Daughter Particles for Event RSE {target_rse_tuple} ---")
+        if positron_info['g4_id'] is not None:
+            if positron_info['daughters']:
+                print(f"Positron (G4 ID: {positron_info['g4_id']}) has daughters:")
+                for d in positron_info['daughters']:
+                    start_process_str = d['start_process']
+                    print(f"  - G4 ID: {d['g4_id']}, PDG: {d['g4_pdg']}, Momentum: {d['momentum']:.2f} GeV/c, Category: {d['category']}, Start Process: {start_process_str}") # Changed label to GeV/c
+            else:
+                print(f"Positron (G4 ID: {positron_info['g4_id']}) has no daughters listed.")
+        else:
+            print("No primary positron found for this event.")
+
+        if electron_info['g4_id'] is not None:
+            if electron_info['daughters']:
+                print(f"Electron (G4 ID: {electron_info['g4_id']}) has daughters:")
+                for d in electron_info['daughters']:
+                    start_process_str = d['start_process']
+                    print(f"  - G4 ID: {d['g4_id']}, PDG: {d['g4_pdg']}, Momentum: {d['momentum']:.2f} GeV/c, Category: {d['category']}, Start Process: {start_process_str}") # Changed label to GeV/c
+            else:
+                print(f"Electron (G4 ID: {electron_info['g4_id']}) has no daughters listed.")
+        else:
+            print("No primary electron found for this event.")
+        print("--------------------------------------------------")
+
+
+    except Exception as e:
+        print(f"An error occurred while viewing event: {e}")
+        import traceback
+        traceback.print_exc()
+
+# --- Main execution block ---
+if __name__ == "__main__":
+    if not os.path.exists(HDF5_FILE_PATH):
+        print(f"Error: HDF5 file '{HDF5_FILE_PATH}' not found. Please provide the correct path.")
+        sys.exit(1)
+
+    print(f"\n--- Attempting to view events from HDF5 file '{HDF5_FILE_PATH}' ---")
+
+    all_event_rse_ids_main = get_event_rse_list(HDF5_FILE_PATH) 
+
+    if all_event_rse_ids_main.size == 0:
+        print("No events found in /event_table/event_id. Cannot proceed with visualization examples.")
+        sys.exit(1)
+
+    # Example 1: View an event using an integer index
+    event_index_to_view = 23
+    print(f"\nViewing event by integer index: {event_index_to_view}")
+    view_event3d_adapted(HDF5_FILE_PATH, event_index_to_view, 
+                         point_color_by='integral', 
+                         html_name="event_view_adapted_idx0")
+
+    # Example 2: View an event using a specific RSE [runNo, subRunNo, eventNo]
+    """
+    try:
+        first_event_rse_from_hdf5 = get_rse_tuple_from_event_id_array(all_event_rse_ids_main[0])
+        event_rse_to_view = list(first_event_rse_from_hdf5)
+        print(f"\nViewing event by RSE: {event_rse_to_view}")
+        
+        view_event3d_adapted(HDF5_FILE_PATH, event_rse_to_view, 
+                             point_color_by='integral', 
+                             html_name="event_view_adapted_rse")
+
+    except Exception as e:
+        print(f"Could not determine an RSE for testing: {e}. Please manually provide a valid RSE from your HDF5 file.")
+        import traceback
+        traceback.print_exc()
+        """
