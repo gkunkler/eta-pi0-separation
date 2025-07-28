@@ -7,6 +7,7 @@ deterministic: False
 epochs: 50
 lr: 0.001
 sched: 'cosine'
+save_freq: 10
 
 # basic config
 common:
@@ -23,9 +24,9 @@ root_dir: 'log_regression'
 train:
   print_freq: 10
   num_workers: 4
-  batch_size: 16
+  batch_size: 32
   num_epochs: 50
-  val_freq: 10
+  val_freq: 2
   step_per_update: 1
   start_epoch: 0
   sched_on_epoch: True
@@ -37,16 +38,16 @@ dataset:
     NAME: 'create_event_dataset'
     num_points: 2048 # fixed num points need to mod here
     h5_file_path: 'epem_sample_restructured_chunked.h5'
-    max_samples: 100
+    max_samples: 1000
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15
   train:
     transforms: []
   val:
-    batch_size: 16
+    batch_size: 32
   test:
-    batch_size: 16
+    batch_size: 32
 
 
 #model config

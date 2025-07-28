@@ -4,6 +4,7 @@ import torch, torch.nn as nn
 from torch import distributed as dist
 #from torch.utils.tensorboard import SummaryWriter # Keep this import if cfg.tensorboard is True, otherwise remove (based on final decision)
 
+import time
 # OpenPoints utilities
 from openpoints.utils import set_random_seed, save_checkpoint, load_checkpoint, load_checkpoint_inv, resume_checkpoint, setup_logger_dist, \
     cal_model_parm_nums, AverageMeter # Removed Wandb from here
@@ -59,7 +60,23 @@ def main(gpu, cfg, profile=False):
     torch.backends.cudnn.enabled = True
     logging.info(cfg)
 
+    logging.info(f"\n--- GPU Status Check ---")
+    logging.info(f"CUDA available (PyTorch check): {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        logging.info(f"CUDA device count: {torch.cuda.device_count()}")
+        logging.info(f"CUDA current device (cfg.rank): {cfg.rank}")
+        logging.info(f"CUDA device name (device 0): {torch.cuda.get_device_name(0)}")
+        logging.info(f"Initial CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
+    logging.info(f"--- End GPU Status Check ---\n")
+
+
     model = build_model_from_cfg(cfg.model).to(cfg.rank)
+
+    logging.info(f"Model moved to device: {next(model.parameters()).device}") 
+    if torch.cuda.is_available():
+        logging.info(f"CUDA memory after model move: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
+
+
     model_size = cal_model_parm_nums(model)
     logging.info(model)
     logging.info('Number of params: %.4f M' % (model_size / 1e6))
@@ -102,21 +119,24 @@ def main(gpu, cfg, profile=False):
         batch_size=cfg.train.batch_size,
         num_workers=cfg.train.get('num_workers', 4), 
         shuffle=True, 
-        drop_last=True 
+        drop_last=True,
+        worker_init_fn=EventPointCloudDataset.worker_init_fn
     )
     val_loader = DataLoader(
         val_dataset_split,
         batch_size=cfg.dataset.val.get('batch_size', cfg.train.batch_size), 
         num_workers=cfg.dataset.val.get('num_workers', 4),
         shuffle=False, 
-        drop_last=False 
+        drop_last=False,
+        worker_init_fn=EventPointCloudDataset.worker_init_fn
     )
     test_loader = DataLoader(
         test_dataset_split,
         batch_size=cfg.get('test_batch_size', cfg.dataset.val.get('batch_size', cfg.train.batch_size)),
         num_workers=cfg.get('test_num_workers', 4),
         shuffle=False, 
-        drop_last=False
+        drop_last=False,
+        worker_init_fn=EventPointCloudDataset.worker_init_fn
     )
 
     logging.info(f"Length of training dataset: {len(train_loader.dataset)}")
@@ -131,14 +151,21 @@ def main(gpu, cfg, profile=False):
 
     model.zero_grad() 
     for epoch in range(cfg.train.start_epoch, cfg.epochs + 1):
+        epoch_start_time = time.time() # <--- Start timing for the entire epoch
+        logging.info(f"DEBUG TIMING: Epoch {epoch} starts at {time.strftime('%H:%M:%S', time.localtime(epoch_start_time))}")
+
         if cfg.distributed:
             train_loader.sampler.set_epoch(epoch) 
         if hasattr(train_loader.dataset, 'epoch'):
             train_loader.dataset.epoch = epoch - 1 
         
+        train_loop_start = time.time()
         train_loss, train_mse, train_mae = \
             train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion, cfg)
+        train_loop_end = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - train_one_epoch duration: {train_loop_end - train_loop_start:.2f} seconds")
 
+        val_check_start = time.time()
         val_loss, val_mse, val_mae = float('inf'), float('inf'), float('inf') 
         is_best = False
         if epoch % cfg.train.val_freq == 0:
@@ -152,11 +179,15 @@ def main(gpu, cfg, profile=False):
                 logging.info(f'Found a better checkpoint @E{epoch} with MSE: {best_val_mse:.4f}')
             
             print_regression_results(val_loss, val_mse, val_mae, epoch, cfg)
+        val_check_end = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - Validation check block duration: {val_check_end - val_check_start:.2f} seconds")
+
 
         lr = optimizer.param_groups[0]['lr']
         logging.info(f'Epoch {epoch} LR {lr:.6f} '
                      f'train_loss {train_loss:.4f}, val_mse {val_mse:.4f}, best val mse {best_val_mse:.4f}')
         
+        tb_log_start = time.time()
         # --- TensorBoard Logging (Only if writer is not None) ---
         if writer is not None: 
             writer.add_scalar('train/loss', train_loss, epoch)
@@ -169,17 +200,33 @@ def main(gpu, cfg, profile=False):
             writer.add_scalar('best_val_mse', best_val_mse, epoch)
             writer.add_scalar('epoch', epoch, epoch)
         # --- End TensorBoard Logging ---
+        tb_log_end = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - TensorBoard logging duration: {tb_log_end - tb_log_start:.2f} seconds")
 
+        sched_step_start = time.time()
         if cfg.train.sched_on_epoch:
             scheduler.step(epoch) 
+
+        sched_step_end = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - Scheduler step duration: {sched_step_end - sched_step_start:.2f} seconds")
+        
+        save_ckpt_start = time.time()
         if cfg.rank == 0: 
             save_checkpoint(cfg, model, epoch, optimizer, scheduler,
                             additioanl_dict={'best_val_mse': best_val_mse}, 
                             is_best=is_best
                             )
+        save_ckpt_end = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - Checkpoint save duration: {save_ckpt_end - save_ckpt_start:.2f} seconds")
+
+        epoch_end_time = time.time()
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - TOTAL epoch wall clock time: {epoch_end_time - epoch_start_time:.2f} seconds")
+        # Sum of components. This should closely match TOTAL epoch wall clock time if all major parts are timed.
+        logging.info(f"DEBUG TIMING: Epoch {epoch} - Sum of (Train+Val+TB+Sched+Save) durations: { (train_loop_end - train_loop_start) + (val_check_end - val_check_start) + (tb_log_end - tb_log_start) + (sched_step_end - sched_step_start) + (save_ckpt_end - save_ckpt_start):.2f} seconds")
+
     
     # Test the last epoch model 
-    test_loss_last, test_mse_last, test_mae_last = validate_regression(model, test_loader, criterion, cfg)
+    test_loss_last, test_mse_last, test_mae_last = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="last_epoch_test")
     print_regression_results(test_loss_last, test_mse_last, test_mae_last, cfg.epochs, cfg)
     if writer is not None:
         writer.add_scalar('test/loss_last_epoch', test_loss_last, cfg.epochs)
@@ -189,7 +236,7 @@ def main(gpu, cfg, profile=False):
     # Test the best validataion model
     best_epoch_loaded, _ = load_checkpoint(model, pretrained_path=os.path.join(
         cfg.ckpt_dir, f'{cfg.run_name}_ckpt_best.pth'))
-    test_loss_best, test_mse_best, test_mae_best = validate_regression(model, test_loader, criterion, cfg)
+    test_loss_best, test_mse_best, test_mae_best = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="best_epoch_test")
     if writer is not None:
         writer.add_scalar('test/loss_best_val_epoch', test_loss_best, best_epoch_loaded)
         writer.add_scalar('test/mse_best_val_epoch', test_mse_best, best_epoch_loaded)
@@ -216,6 +263,11 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         data_dict['pos'] = data_dict['pos'].cuda(non_blocking=True)
         data_dict['x'] = data_dict['x'].cuda(non_blocking=True)
         target = target.cuda(non_blocking=True) 
+        
+        if torch.cuda.is_available() and idx % cfg.train.print_freq == 0: # Only print every print_freq batches
+            logging.info(f"Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
+            logging.info(f"Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
+
 
         num_iter += 1
         
@@ -279,3 +331,65 @@ def validate_regression(model, val_loader, criterion, cfg):
     val_loss = loss_meter.avg 
 
     return val_loss, val_mse, val_mae
+
+@torch.no_grad()
+def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name="test"):
+    """
+    Validates the model and saves all individual predictions and ground truth targets to disk.
+    Args:
+        model: The PyTorch model.
+        data_loader: DataLoader for the dataset split (e.g., test_loader).
+        criterion: The loss function.
+        cfg: The EasyConfig object.
+        split_name (str): Name of the split (e.g., "val", "test", "last_epoch_test", "best_epoch_test")
+                          to be used in filenames.
+    Returns:
+        (loss, mse, mae) for the entire split.
+    """
+    model.eval() 
+    loss_meter = AverageMeter()
+    mse_meter = MeanSquaredError().to(cfg.rank)
+    mae_meter = MeanAbsoluteError().to(cfg.rank)
+
+    # Lists to store predictions and targets from all batches
+    all_predictions = []
+    all_targets = []
+
+    pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating {split_name}")
+    for idx, (data_dict, target) in pbar: 
+        data_dict['pos'] = data_dict['pos'].cuda(non_blocking=True)
+        data_dict['x'] = data_dict['x'].cuda(non_blocking=True)
+        target = target.cuda(non_blocking=True)
+
+        logits = model(data_dict)
+
+        loss = criterion(logits.squeeze(-1), target.squeeze(-1))
+        
+        mse_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        mae_meter.update(logits.squeeze(-1), target.squeeze(-1))
+
+        loss_meter.update(loss.item())
+        
+        # Store predictions and targets (move to CPU and detach from graph)
+        all_predictions.append(logits.squeeze(-1).cpu().detach().numpy())
+        all_targets.append(target.squeeze(-1).cpu().detach().numpy())
+    
+    # Concatenate all collected arrays
+    predictions_array = np.concatenate(all_predictions, axis=0)
+    targets_array = np.concatenate(all_targets, axis=0)
+
+    # Save to disk in the run's log directory
+    # cfg.run_dir is already set up by setup_logger_dist
+    pred_path = os.path.join(cfg.run_dir, f"{split_name}_predictions.npy")
+    target_path = os.path.join(cfg.run_dir, f"{split_name}_targets.npy")
+    
+    np.save(pred_path, predictions_array)
+    np.save(target_path, targets_array)
+    logging.info(f"Saved {split_name} predictions to: {pred_path}")
+    logging.info(f"Saved {split_name} targets to: {target_path}")
+
+    final_mse = mse_meter.compute()
+    final_mae = mae_meter.compute()
+    final_loss = loss_meter.avg 
+
+    return final_loss, final_mse, final_mae

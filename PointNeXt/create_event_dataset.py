@@ -12,6 +12,10 @@ class EventPointCloudDataset(Dataset):
 	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None, max_samples=None):
 		self.h5_file_path=h5_file_path
 		self.num_points=num_points
+
+		self.h5_file = None 
+		self.hdf5_store = None 
+
 		with pd.HDFStore(h5_file_path, 'r') as store:
 			self.event_metadata_df=store.select('event_metadata')
 
@@ -30,6 +34,18 @@ class EventPointCloudDataset(Dataset):
 
 	def __len__(self):
 			return self.num_samples
+
+	@staticmethod
+	def worker_init_fn(worker_id):
+		worker_info = torch.utils.data.get_worker_info()
+		dataset_obj = worker_info.dataset
+		if isinstance(dataset_obj, torch.utils.data.Subset):
+			original_dataset_for_worker = dataset_obj.dataset
+		else:
+			original_dataset_for_worker = dataset_obj 
+		original_dataset_for_worker.hdf5_store = pd.HDFStore(original_dataset_for_worker.h5_file_path, 'r')
+		print(f"HDFStore opened in worker {worker_id}") 
+
 
 	def __getitem__(self,indx):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
@@ -88,6 +104,11 @@ class EventPointCloudDataset(Dataset):
 			data_dict = {'pos': pos_tensor, 'x': feat_tensor} 
 			
 			return data_dict, target_tensor
+
+	def __del__(self):
+		if hasattr(self, 'hdf5_store') and self.hdf5_store is not None and self.hdf5_store.is_open:
+			self.hdf5_store.close()
+			print("HDFStore closed in __del__") # Optional debug print
 
 if __name__ == "__main__":
 	HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"

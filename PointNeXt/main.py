@@ -1,6 +1,6 @@
 
 
-import warnings
+import warnings ; warnings.warn = lambda *args,**kwargs: None
 import os, argparse, yaml, numpy as np
 from torch import multiprocessing as mp
 from train_mod import main as train 
@@ -11,11 +11,7 @@ from openpoints.utils import EasyConfig, dist_utils, find_free_port, generate_ex
 
 from create_event_dataset import EventPointCloudDataset 
 
-warnings.filterwarnings(
-    "ignore", 
-    category=FutureWarning, 
-    message="`torch.cuda.amp.custom_fwd\\(args...\\)` is deprecated.*"
-)
+
 
 
 if __name__ == "__main__":
