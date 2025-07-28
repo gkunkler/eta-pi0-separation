@@ -1,0 +1,69 @@
+model:
+  NAME: 'RegressionModelWrapper'
+  encoder_args:
+    NAME: PointNextEncoder
+    blocks: [1, 4, 7, 4]
+    strides: [1, 4, 4, 4]
+    sa_layers: 1 
+    sa_use_res: True
+    use_res: True
+    width: 32
+    in_channels: 3
+    expansion: 4
+    radius: 0.1
+    nsample: 32
+    group_args:
+      NAME: 'ballquery'
+      normalize_dp: True
+    conv_args: {}
+    act_args:
+      act: 'relu'
+    norm_args:
+      norm: 'bn'
+    sampler: 'fps'
+    radius_scaling: 2
+    nsample_scaling: 1
+
+  decoder_args:
+    NAME: PointNextDecoder
+  cls_args:
+    NAME: SegHead
+    global_feat: max # append global feature to each point feature
+    num_classes: 20 
+    in_channels: null
+    norm_args:
+      norm: 'bn'
+  #reg head
+  head_args:
+    NAME: 'RegressionHead'
+    out_dim:1
+    mlp_channels: [256, 128]
+    norm_args:
+      norm: 'bn'
+    act_args:
+      act: 'relu'
+      
+# --- Optimizer Config ---
+optimizer:
+  NAME: 'AdamW'
+  lr: 0.001
+  weight_decay: 0.0001 # A common value
+  # ... other AdamW specific args ...
+
+# --- Scheduler Config ---
+scheduler:
+  NAME: 'CosineAnnealingLR'
+  T_max: 200 # Number of epochs, adjust as needed
+  eta_min: 0.00001
+  # ... other scheduler args ...
+
+# --- Loss Config ---
+loss:
+  NAME: 'MSELoss' # Mean Squared Error Loss for regression
+  reduction: 'mean' # Or 'sum', 'none'
+
+# --- Training Config ---
+train:
+  num_epochs: 200
+  batch_size: 16 # Adjust based on GPU memory
+  # ... other training specific args (e.g., gradient clipping)
