@@ -75,18 +75,20 @@ class EventPointCloudDataset(Dataset):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
 			hdf5_select_start = time.time()
-			rse_tuple = (event_meta_row['runNo'], event_meta_row['subRunNo'], event_meta_row['eventNo'])
 			current_event_meta = self.event_metadata_df.iloc[indx]
+			rse_tuple = (current_event_meta['runNo'], current_event_meta['subRunNo'], current_event_meta['eventNo'])
+			
 
 			pc_data = self.all_preloaded_pc_data[rse_tuple]
 			opang =self.all_preloaded_pc_targets[rse_tuple]
+			hdf5_select_end =  time.time()
 			print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
 
 
-			x_coords = pc_data["x"].values
-			y_coords = pc_data["y"].values
-			z_coords = pc_data["z"].values
-			
+			x_coords = pc_data["x"]
+			y_coords = pc_data["y"]
+			z_coords = pc_data["z"]
+		
 			#combine into 3 numpt array
 			
 			points_xyz = np.stack([x_coords, y_coords, z_coords], axis=-1) 

@@ -26,7 +26,7 @@ train:
   num_workers: 0
   batch_size: 32
   num_epochs: 50
-  val_freq: 2
+  val_freq: 10
   step_per_update: 1
   start_epoch: 0
   sched_on_epoch: True
@@ -39,7 +39,7 @@ dataset:
     NAME: 'create_event_dataset'
     num_points: 2048 # fixed num points need to mod here
     h5_file_path: 'epem_sample_restructured_chunked.h5'
-    max_samples: 1000
+    max_samples: 100
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15

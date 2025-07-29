@@ -247,14 +247,21 @@ def main(gpu, cfg, profile=False):
     if writer is not None:
         writer.close() 
     
-    dist.destroy_process_group()
-
+    
+    if cfg.distributed: 
+        dist.destroy_process_group() 
 
 # --- Modified train_one_epoch function ---
 def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion, cfg): # Added criterion param
     loss_meter = AverageMeter()
     mse_meter = MeanSquaredError().to(cfg.rank)
     mae_meter = MeanAbsoluteError().to(cfg.rank)
+
+    pbar_val_setup_start_time = time.time()
+    pbar = tqdm(enumerate(val_loader), total=len(val_loader), desc=f"Evaluating validation")
+    pbar_val_setup_end_time = time.time()
+    logging.info(f"DEBUG TIMING: Val - pbar setup duration: {pbar_val_setup_end_time - pbar_val_setup_start_time:.4f}s")
+
 
     model.train()  # set model to training mode
     pbar = tqdm(enumerate(train_loader), total=len(train_loader)) 

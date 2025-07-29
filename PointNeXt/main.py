@@ -51,10 +51,10 @@ if __name__ == "__main__":
 
     if cfg.mode in ['resume', 'val', 'test']:
         resume_exp_directory(cfg, pretrained_path=cfg.pretrained_path)
-        # REMOVED: cfg.common.wandb.tags = [cfg.mode] 
+        
     else:  
         generate_exp_directory(cfg, tags, additional_id=os.environ.get('MASTER_PORT', None))
-        # REMOVED: cfg.common.wandb.tags = tags 
+
     
     os.environ["JOB_LOG_DIR"] = cfg.log_dir
     cfg_path = os.path.join(cfg.run_dir, "cfg.yaml")
@@ -62,7 +62,8 @@ if __name__ == "__main__":
         yaml.dump(cfg, f, indent=2)
         os.system('copy "%s" "%s"' % (args.cfg, cfg.run_dir))
     cfg.cfg_path = cfg_path
-    # REMOVED: cfg.common.wandb.name = cfg.run_name 
+
+    cfg.log_path = os.path.join(cfg.run_dir, 'stdout.log')
 
     if cfg.mode == 'pretrain':
         main = pretrain
