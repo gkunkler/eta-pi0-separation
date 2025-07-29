@@ -1,33 +1,23 @@
-import os, logging, csv, numpy as np # Removed wandb import
+import os, logging, csv, numpy as np
 from tqdm import tqdm
 import torch, torch.nn as nn
 from torch import distributed as dist
 #from torch.utils.tensorboard import SummaryWriter # Keep this import if cfg.tensorboard is True, otherwise remove (based on final decision)
-
 import time
-# OpenPoints utilities
 from openpoints.utils import set_random_seed, save_checkpoint, load_checkpoint, load_checkpoint_inv, resume_checkpoint, setup_logger_dist, \
-    cal_model_parm_nums, AverageMeter # Removed Wandb from here
-
-# Dataset and Transforms
-from torch.utils.data import DataLoader # Directly import DataLoader
+    cal_model_parm_nums, AverageMeter 
+from torch.utils.data import DataLoader 
 from openpoints.transforms import build_transforms_from_cfg
-
-# Optimizer, Scheduler, Model building
 from openpoints.optim import build_optimizer_from_cfg
 from openpoints.scheduler import build_scheduler_from_cfg
 from openpoints.models import build_model_from_cfg
-
-# Regression-specific metrics from torchmetrics
 from torchmetrics import MeanSquaredError, MeanAbsoluteError 
-
-# Your custom dataset and model components
 from create_event_dataset import EventPointCloudDataset 
 from openpoints.models.regression.reg_head import RegressionHead 
 from RegressionModelWrapper import RegressionModelWrapper 
 
 
-# --- Regression-specific helper functions ---
+#Regression-specific helper functions
 def print_regression_results(loss, mse, mae, epoch_val, cfg): 
     s = f'\nE@{epoch_val}\tLoss: {loss:.4f}\tMSE: {mse:.4f}\tMAE: {mae:.4f}\n'
     logging.info(s)
@@ -43,16 +33,15 @@ def main(gpu, cfg, profile=False):
                                  rank=cfg.rank)
         dist.barrier()
     
-    # Logger setup (uses Python's built-in logging module for console & file)
+    #Logger setup
     setup_logger_dist(cfg.log_path, cfg.rank, name=cfg.dataset.common.NAME)
     
-    # Initialize TensorBoard writer (based on cfg)
+   
     if cfg.rank == 0 : 
-        # REMOVED Wandb.launch call
-        if cfg.common.tensorboard: # Only create SummaryWriter if tensorboard is True in config
+        if cfg.common.tensorboard:
             writer = SummaryWriter(log_dir=cfg.run_dir) 
         else:
-            writer = None # Set writer to None if TensorBoard is disabled
+            writer = None #Set writer to None if TensorBoard is disabled
     else:
         writer = None 
 
@@ -100,8 +89,8 @@ def main(gpu, cfg, profile=False):
     full_dataset = EventPointCloudDataset(
         h5_file_path=cfg.dataset.common.h5_file_path,
         num_points=cfg.dataset.common.num_points,
-        use_transforms=cfg.dataset.common.get('transforms'), # Apply common transforms to the base dataset
-        max_samples=cfg.dataset.common.get('max_samples') # Pass the max_samples from YAML here
+        use_transforms=cfg.dataset.common.get('transforms'), #Apply common transforms to the base dataset
+        max_samples=cfg.dataset.common.get('max_samples') #Pass the max_samples from YAML here
     )
     total_samples = len(full_dataset)
     train_size=int(cfg.dataset.common.train_split*total_samples)
@@ -151,7 +140,7 @@ def main(gpu, cfg, profile=False):
 
     model.zero_grad() 
     for epoch in range(cfg.train.start_epoch, cfg.epochs + 1):
-        epoch_start_time = time.time() # <--- Start timing for the entire epoch
+        epoch_start_time = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} starts at {time.strftime('%H:%M:%S', time.localtime(epoch_start_time))}")
 
         if cfg.distributed:
@@ -188,7 +177,6 @@ def main(gpu, cfg, profile=False):
                      f'train_loss {train_loss:.4f}, val_mse {val_mse:.4f}, best val mse {best_val_mse:.4f}')
         
         tb_log_start = time.time()
-        # --- TensorBoard Logging (Only if writer is not None) ---
         if writer is not None: 
             writer.add_scalar('train/loss', train_loss, epoch)
             writer.add_scalar('train/mse', train_mse, epoch)
@@ -199,7 +187,6 @@ def main(gpu, cfg, profile=False):
             writer.add_scalar('val/mae', val_mae, epoch)
             writer.add_scalar('best_val_mse', best_val_mse, epoch)
             writer.add_scalar('epoch', epoch, epoch)
-        # --- End TensorBoard Logging ---
         tb_log_end = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} - TensorBoard logging duration: {tb_log_end - tb_log_start:.2f} seconds")
 
@@ -221,7 +208,7 @@ def main(gpu, cfg, profile=False):
 
         epoch_end_time = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} - TOTAL epoch wall clock time: {epoch_end_time - epoch_start_time:.2f} seconds")
-        # Sum of components. This should closely match TOTAL epoch wall clock time if all major parts are timed.
+        #Sum of component
         logging.info(f"DEBUG TIMING: Epoch {epoch} - Sum of (Train+Val+TB+Sched+Save) durations: { (train_loop_end - train_loop_start) + (val_check_end - val_check_start) + (tb_log_end - tb_log_start) + (sched_step_end - sched_step_start) + (save_ckpt_end - save_ckpt_start):.2f} seconds")
 
     
@@ -243,7 +230,7 @@ def main(gpu, cfg, profile=False):
         writer.add_scalar('test/mae_best_val_epoch', test_mae_best, best_epoch_loaded)
     print_regression_results(test_loss_best, test_mse_best, test_mae_best, best_epoch_loaded, cfg)
 
-    # Close TensorBoard writer (if active)
+    #Close TensorBoard writer (if active)
     if writer is not None:
         writer.close() 
     
@@ -251,7 +238,7 @@ def main(gpu, cfg, profile=False):
     if cfg.distributed: 
         dist.destroy_process_group() 
 
-# --- Modified train_one_epoch function ---
+#Modified train_one_epoch function
 def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion, cfg): # Added criterion param
     loss_meter = AverageMeter()
     mse_meter = MeanSquaredError().to(cfg.rank)
@@ -263,7 +250,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
     logging.info(f"DEBUG TIMING: Val - pbar setup duration: {pbar_val_setup_end_time - pbar_val_setup_start_time:.4f}s")
 
 
-    model.train()  # set model to training mode
+    model.train()  #set model to training mode
     pbar = tqdm(enumerate(train_loader), total=len(train_loader)) 
     num_iter = 0
     for idx, (data_dict, target) in pbar: 
@@ -275,7 +262,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         target = target.cuda(non_blocking=True)
         data_load_end = time.time()
         
-        if torch.cuda.is_available() and idx % cfg.train.print_freq == 0: # Only print every print_freq batches
+        if torch.cuda.is_available() and idx % cfg.train.print_freq == 0: 
             logging.info(f"Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
             logging.info(f"Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
 
@@ -305,7 +292,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
             logging.info(f"DEBUG TIMING: Train Batch {idx} - Data Load+Transfer: {data_load_end - data_load_start:.4f}s")
             logging.info(f"DEBUG TIMING: Train Batch {idx} - Model Compute (Fwd+Bwd+Opt): {model_compute_end - model_compute_start:.4f}s")
             logging.info(f"DEBUG TIMING: Train Batch {idx} - Total Batch Wall Time: {time.time() - batch_start_time:.4f}s")
-            # --- Optional: Check GPU Memory per batch (can spam logs) ---
+            #Check GPU Memory per batch (might spams so can remove)
             if torch.cuda.is_available():
                 logging.info(f"DEBUG: Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
                 logging.info(f"DEBUG: Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
@@ -375,24 +362,13 @@ def validate_regression(model, val_loader, criterion, cfg):
 
 @torch.no_grad()
 def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name="test"):
-    """
-    Validates the model and saves all individual predictions and ground truth targets to disk.
-    Args:
-        model: The PyTorch model.
-        data_loader: DataLoader for the dataset split (e.g., test_loader).
-        criterion: The loss function.
-        cfg: The EasyConfig object.
-        split_name (str): Name of the split (e.g., "val", "test", "last_epoch_test", "best_epoch_test")
-                          to be used in filenames.
-    Returns:
-        (loss, mse, mae) for the entire split.
-    """
+    #Validates the model and saves all individual predictions and ground truth targets to disk.
     model.eval() 
     loss_meter = AverageMeter()
     mse_meter = MeanSquaredError().to(cfg.rank)
     mae_meter = MeanAbsoluteError().to(cfg.rank)
 
-    # Lists to store predictions and targets from all batches
+    #Lists to store predictions and targets from all batches
     all_predictions = []
     all_targets = []
 
@@ -411,7 +387,7 @@ def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name
 
         loss_meter.update(loss.item())
         
-        # Store predictions and targets (move to CPU and detach from graph)
+        # Store predictions and targets
         all_predictions.append(logits.squeeze(-1).cpu().detach().numpy())
         all_targets.append(target.squeeze(-1).cpu().detach().numpy())
     
@@ -420,7 +396,6 @@ def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name
     targets_array = np.concatenate(all_targets, axis=0)
 
     # Save to disk in the run's log directory
-    # cfg.run_dir is already set up by setup_logger_dist
     pred_path = os.path.join(cfg.run_dir, f"{split_name}_predictions.npy")
     target_path = os.path.join(cfg.run_dir, f"{split_name}_targets.npy")
     

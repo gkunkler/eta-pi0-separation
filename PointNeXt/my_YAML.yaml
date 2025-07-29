@@ -1,6 +1,6 @@
 
-dist_backend: 'nccl' # 'nccl' is standard for NVIDIA GPUs
-world_size: 1        # Number of processes/GPUs (1 for single GPU)
+dist_backend: 'nccl' #For Nvidia
+world_size: 1        #Number of processes/GPUs
 local_rank: 0 
 launcher: null 
 deterministic: False
@@ -37,7 +37,7 @@ train:
 dataset:
   common:
     NAME: 'create_event_dataset'
-    num_points: 2048 # fixed num points need to mod here
+    num_points: 2048
     h5_file_path: 'epem_sample_restructured_chunked.h5'
     max_samples: 100
     train_split: 0.7
@@ -81,11 +81,10 @@ model:
     sampler: 'fps'
     radius_scaling: 2
     nsample_scaling: 1
-  head_args: # NEW SECTION: Replaces decoder_args and cls_args
-    NAME: 'RegressionHead' # This name must be registered
-    encoder_out_channels: 512 # Output channels of PointNextEncoder (width * 16 for last stage if width doubles each stride)
-                                # PointNext-S has 4 strides, so 32 * (2^4) = 32 * 16 = 512.
-    out_dim: 1 # Your single regression output (opang)
+  head_args: 
+    NAME: 'RegressionHead' 
+    encoder_out_channels: 512 
+    out_dim: 1 #single regression output (opang)
     mlp_channels: [256, 128] # MLP layers within the head
     norm_args:
       norm: 'bn'
@@ -107,5 +106,5 @@ scheduler:
 
 # Loss config
 loss:
-  NAME: 'MSELoss' # Mean Squared Error for regression
+  NAME: 'MSELoss' #Mean Squared Error for regression
   reduction: 'mean'

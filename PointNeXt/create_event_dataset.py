@@ -56,6 +56,7 @@ class EventPointCloudDataset(Dataset):
 	def __len__(self):
 			return self.num_samples
 
+	#for workers but don't need anymore
 	@staticmethod
 	def worker_init_fn(worker_id):
 		pass
@@ -90,7 +91,6 @@ class EventPointCloudDataset(Dataset):
 			z_coords = pc_data["z"]
 		
 			#combine into 3 numpt array
-			
 			points_xyz = np.stack([x_coords, y_coords, z_coords], axis=-1) 
 			features = points_xyz.copy()
 			
@@ -126,7 +126,6 @@ class EventPointCloudDataset(Dataset):
 				target_tensor = data_dict_for_transform['y']
 
 			# Return as a dict for inputs, and the target
-			#Keys 'pos' and 'x' match expected arguments for PointNextEncoder's forward
 			data_dict = {'pos': pos_tensor, 'x': feat_tensor} 
 			
 			return data_dict, target_tensor
@@ -134,7 +133,7 @@ class EventPointCloudDataset(Dataset):
 	def __del__(self):
 		if hasattr(self, 'hdf5_store') and self.hdf5_store is not None and self.hdf5_store.is_open:
 			self.hdf5_store.close()
-			print("HDFStore closed in __del__") # Optional debug print
+			print("HDFStore closed in __del__")
 
 if __name__ == "__main__":
 	HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"

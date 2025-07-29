@@ -39,7 +39,7 @@ if __name__ == "__main__":
         cfg.mode,
         cfg.exp_name,  
         f'ngpus{cfg.world_size}',
-        f'seed{cfg.common.seed}', # Access seed via common here as well
+        f'seed{cfg.common.seed}', 
     ]
     opt_list = [] 
     for i, opt in enumerate(opts):
