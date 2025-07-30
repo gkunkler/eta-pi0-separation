@@ -1,0 +1,110 @@
+
+dist_backend: 'nccl' #For Nvidia
+world_size: 1        #Number of processes/GPUs
+local_rank: 0 
+launcher: null 
+deterministic: False
+epochs: 50
+lr: 0.001
+sched: 'cosine'
+save_freq: 10
+
+# basic config
+common:
+  seed: 0
+  tensorboard: False
+  wandb: 
+    use_wandb: False 
+  exp_name: 'pointnext_opang_regression'
+  task_name: 'regression_events'
+
+root_dir: 'log_regression'
+
+
+train:
+  print_freq: 1
+  num_workers: 0
+  batch_size: 32
+  num_epochs: 50
+  val_freq: 10
+  step_per_update: 1
+  start_epoch: 0
+  sched_on_epoch: True
+  save_freq: 1
+
+
+#dataset config
+dataset:
+  common:
+    NAME: 'create_event_dataset'
+    num_points: 2048
+    h5_file_path: 'epem_sample_restructured_chunked.h5'
+    max_samples: 100
+    train_split: 0.7
+    val_split: 0.15
+    test_split: 0.15
+  train:
+    transforms: []
+  val:
+    batch_size: 32
+  test:
+    batch_size: 32
+
+
+#model config
+model:
+  NAME: 'RegressionModelWrapper'
+  encoder_args:
+    NAME: 'PointNextEncoder'
+    blocks: [1, 4, 7, 4]
+    strides: [4, 4, 4, 4]
+    sa_layers: 1 
+    sa_use_res: True 
+    width: 32
+    in_channels: 3
+    expansion: 4
+    radius: 0.1
+    nsample: 32
+    aggr_args:
+      feature_type: 'dp_fj'
+      reduction: 'max'
+    group_args:
+      NAME: 'ballquery'
+      normalize_dp: True
+    conv_args: {}
+    act_args:
+      act: 'relu'
+    norm_args:
+      norm: 'bn'
+    #decoder_args:
+      #NAME: PointNextDecoder
+    sampler: 'fps'
+    radius_scaling: 2
+    nsample_scaling: 1
+  head_args: 
+    NAME: 'RegressionHead' 
+    encoder_out_channels: 512 
+    out_dim: 1 #single regression output (opang)
+    mlp_channels: [256, 128] # MLP layers within the head
+    norm_args:
+      norm: 'bn'
+    act_args:
+      act: 'relu'
+
+
+# Optimizer config
+optimizer:
+  NAME: 'AdamW'
+  lr: 0.001
+  weight_decay: 0.0001
+
+# Scheduler config
+scheduler:
+  NAME: 'CosineAnnealingLR'
+  T_max: 50 # Should match num_epochs in train section
+  eta_min: 0.00001 
+
+# Loss config
+loss:
+  NAME: 'MSELoss' #Mean Squared Error for regression
+  reduction: 'mean'

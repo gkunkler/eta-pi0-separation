@@ -1,10 +1,10 @@
 #import __init__
 import os, argparse, yaml, numpy as np
 from torch import multiprocessing as mp
-from train_mod import main as train
+from PointNeXt.train_mod import main as train
 from PointNeXt.examples.classification.pretrain import main as pretrain
 from PointNeXt.openpoints.utils import EasyConfig, dist_utils, find_free_port, generate_exp_directory, resume_exp_directory, Wandb
-from EventPointCloudDataset import EventPointCloudDataset
+from PointNeXt.create_event_dataset import EventPointCloudDataset
 
 
 if __name__ == "__main__":
