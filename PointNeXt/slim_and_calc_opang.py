@@ -173,18 +173,11 @@ def create_lean_indexed_hdf5(
 
             with h5py.File(input_h5_path, 'r') as h5f_data_prep:
                 for rse_tuple in tqdm(all_rse_tuples, desc="Pre-calculating Angles & Point Counts"):
-                    # Calculate Angle (don't need this if you don't calculate angle, replace with other vars that you would like to store)
                     angle = calculate_e_p_angle(input_h5_path, rse_tuple)
                     calculated_opangs.append(angle if angle is not None else np.nan) # Store NaN if not found
 
-                    #Count Space Points
-                    spacepoint_event_ids = h5f_data_prep['/spacepoint_table/event_id'][()]
-                    n_pc = np.sum(np.all(spacepoint_event_ids == np.array(rse_tuple, dtype=np.int32), axis=1))
+                    n_pc, n_sp = count_points_and_hits(input_h5_path, rse_tuple)
                     n_pcs.append(n_pc)
-
-                    # Count Hit Points
-                    hit_event_ids = h5f_data_prep['/hit_table/event_id'][()]
-                    n_sp = np.sum(np.all(hit_event_ids == np.array(rse_tuple, dtype=np.int32), axis=1))
                     n_sps.append(n_sp)
 
             #Add calculated columns to the event_metadata_base_df
