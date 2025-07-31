@@ -38,7 +38,7 @@ dataset:
   common:
     NAME: 'create_event_dataset'
     num_points: 2048
-    h5_file_path: 'epem_sample_restructured_chunked.h5'
+    h5_file_path: '../../eta-pi-data/merged_Eta.h5'
     max_samples: 100
     train_split: 0.7
     val_split: 0.15

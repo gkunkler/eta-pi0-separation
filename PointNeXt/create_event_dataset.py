@@ -136,7 +136,7 @@ class EventPointCloudDataset(Dataset):
 			print("HDFStore closed in __del__")
 
 if __name__ == "__main__":
-	HDF5_FILE_PATH = "epem_sample_restructured_chunked.h5"
+	HDF5_FILE_PATH = "../../eta-pi-data/merged_NCPi0.h5"
 	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=2048)
 	data_dict, target = dataset[0]
 	print(f"POS shape: {data_dict['pos'].shape}, X shape: {data_dict['x'].shape}, Target shape: {target.shape}")
