@@ -12,7 +12,7 @@ from openpoints.optim import build_optimizer_from_cfg
 from openpoints.scheduler import build_scheduler_from_cfg
 from openpoints.models import build_model_from_cfg
 from torchmetrics import MeanSquaredError, MeanAbsoluteError 
-from create_event_dataset import EventPointCloudDataset 
+from create_event_dataset_Lab_unslimmed import EventPointCloudDataset 
 from openpoints.models.regression.reg_head import RegressionHead 
 from RegressionModelWrapper import RegressionModelWrapper 
 
