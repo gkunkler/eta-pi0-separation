@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 from tqdm import tqdm
+import pandas as pd
 
 labels = ['NCPi0','Eta']
 # file_paths = ['../eta-pi-data/merged_NCPi0.h5', '../eta-pi-data/merged_Eta.h5']
@@ -81,6 +82,8 @@ for file_name, label in zip(file_paths, labels):
     create_sequence_info(file_name, rewrite=False)
     # Now I can assume that there is a dataset called sequence_info with the information I need to easily interpret hit_id information
 
+    
+
     with h5py.File(file_name, 'r') as f:
 
         # Get references to each table we will be using
@@ -102,18 +105,15 @@ for file_name, label in zip(file_paths, labels):
         sp_positions = sp['position'][:]
         rse = sp['event_id'][:]
 
-        
+        print(f'Connecting spacepoint and hit data')
 
         # Lists to store the data that will be put into the new file
         sequence_info_new = [] # Contains event_id, starting_index, num_points, run, subrun, event (length is the number of events)
         point_info_new = [] # Contains x, y, z, integral
         point_info_centered_new = [] # Contains centered_x, centered_y, centered_z, integral
 
-        event_cap = min(len(sequence_info_sp), 25000)
-        print(f'Connecting spacepoint and hit data (first {event_cap} events)')
-
         j = 0 # Index to start looking event_index in sequence_index_h
-        for i in tqdm(range(len(sequence_info_sp[:event_cap]))):
+        for i in tqdm(range(len(sequence_info_sp))):
 
             # Get the event sequence_data in spacepoint_table
             event_index, starting_index, num_points = sequence_info_sp[i]

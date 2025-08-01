@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 #easilt fecthable
 class EventPointCloudDataset(Dataset):
-	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None, max_samples=None):
+	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None, max_samples_per_category=None):
 		self.h5_file_path=h5_file_path
 		self.num_points=num_points
 		if use_transforms:
@@ -20,36 +20,71 @@ class EventPointCloudDataset(Dataset):
 		else:
 			self.transforms=None
 		self.h5_file = None 
-		self.hdf5_store = None 
 
-		with pd.HDFStore(h5_file_path, 'r') as store:
-			self.event_metadata_df=store.select('event_metadata')
+		self.num_samples = 0
 
-		if max_samples is not None and max_samples > 0 and max_samples < len(self.event_metadata_df):
-			self.event_metadata_df = self.event_metadata_df.head(max_samples) # Take the first N samples
-			print(f"Dataset truncated to {max_samples} samples for testing.")
+		self.h5_file_store = []
 
-		self.num_samples =len(self.event_metadata_df)
-		print(f"Dataset initialized with {self.num_samples} events from {h5_file_path}.")
+		self.preloaded_pc_data = []
+		self.preloaded_pc_target = []
+		self.preloaded_sequence_info = []
+		
+		with h5py.File(h5_file_path, 'r') as f:
 
-		self.all_preloaded_pc_data={}
-		self.all_preloaded_pc_targets={}
-		rse_tuples_to_preload = []
-		for index, row in self.event_metadata_df.iterrows():
-			rse_tuple = (row['runNo'], row['subRunNo'], row['eventNo'])
-			rse_tuples_to_preload.append(rse_tuple)
-			self.all_preloaded_pc_targets[rse_tuple] = row['opang']
-		print(f"Preloading {len(rse_tuples_to_preload)} sets of PC data into RAM (this might take a moment if many samples)...")
-		with pd.HDFStore(h5_file_path, 'r') as preload_store: 
-			for rse_tuple in tqdm(rse_tuples_to_preload, desc="Preloading PC data"):
-				run_no, sub_run_no, event_no = rse_tuple
-				pc_data = preload_store.select('pc_points', where=f"runNo == {run_no} and subRunNo == {sub_run_no} and eventNo == {event_no}")
-				self.all_preloaded_pc_data[rse_tuple] = {
-                    'x': pc_data["x"].values,
-                    'y': pc_data["y"].values,
-                    'z': pc_data["z"].values
-                }
-		print(f"Finished preloading {len(self.all_preloaded_pc_data)} PC event data sets into RAM.")
+			print(f.keys())
+
+			label_index = 0 # Only works for binary groups
+			for group in f.keys():
+
+				grp = f[group]
+				sequence_info = grp['sequence_info_filtered']
+				
+				if max_samples_per_category is not None and max_samples_per_category > 0 and max_samples_per_category < len(sequence_info):
+					sequence_info = sequence_info[:max_samples_per_category] # Take the first N samples
+					print(f"Dataset truncated to {max_samples_per_category} samples per category for testing.")
+
+				self.num_samples += len(sequence_info)
+
+				print(sequence_info)
+
+				print(f"Preloading {len(sequence_info)} sets of PC data into RAM (this might take a moment if many samples)...")
+				for event_index, starting_index, num_points, _, _, _ in sequence_info:
+
+					points = grp['point_info_centered'][starting_index:starting_index+num_points]
+
+					self.preloaded_sequence_info.extend(sequence_info)
+					self.preloaded_pc_data.extend(points)
+					self.preloaded_pc_target.extend(np.ones(num_points)*label_index)
+
+				label_index+=1
+
+			self.preloaded_sequence_info = np.array(self.preloaded_sequence_info)
+			self.preloaded_pc_data = np.array(self.preloaded_pc_data)
+			self.preloaded_pc_target = np.array(self.preloaded_pc_target)
+			
+			print(f"Dataset initialized with {self.num_samples} events from {h5_file_path}.")
+			print(f"Finished preloading {len(self.preloaded_pc_data)} PC event data sets into RAM.")
+
+			# self.all_preloaded_pc_data={}
+			# self.all_preloaded_pc_targets={}
+			# rse_tuples_to_preload = []
+			# for index, row in self.event_metadata_df.iterrows():
+			# 	rse_tuple = (row['runNo'], row['subRunNo'], row['eventNo'])
+			# 	rse_tuples_to_preload.append(rse_tuple)
+			# 	self.all_preloaded_pc_targets[rse_tuple] = row['opang']
+			# print(f"Preloading {len(rse_tuples_to_preload)} sets of PC data into RAM (this might take a moment if many samples)...")
+			# with pd.HDFStore(h5_file_path, 'r') as preload_store: 
+			# 	for rse_tuple in tqdm(rse_tuples_to_preload, desc="Preloading PC data"):
+			# 		run_no, sub_run_no, event_no = rse_tuple
+			# 		pc_data = preload_store.select('pc_points', where=f"runNo == {run_no} and subRunNo == {sub_run_no} and eventNo == {event_no}")
+			# 		self.all_preloaded_pc_data[rse_tuple] = {
+			# 			'x': pc_data["x"].values,
+			# 			'y': pc_data["y"].values,
+			# 			'z': pc_data["z"].values
+			# 		}
+
+			# print(f"Dataset initialized with {self.num_samples} events from {h5_file_path}.")
+			# print(f"Finished preloading {len(self.all_preloaded_pc_data)} PC event data sets into RAM.")
 
 
 
@@ -136,7 +171,7 @@ class EventPointCloudDataset(Dataset):
 			print("HDFStore closed in __del__")
 
 if __name__ == "__main__":
-	HDF5_FILE_PATH = "../../eta-pi-data/merged_NCPi0.h5"
-	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=2048)
+	HDF5_FILE_PATH = "../../eta-pi-data/eta-pi0.h5"
+	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=2048, max_samples_per_category=10)
 	data_dict, target = dataset[0]
 	print(f"POS shape: {data_dict['pos'].shape}, X shape: {data_dict['x'].shape}, Target shape: {target.shape}")
