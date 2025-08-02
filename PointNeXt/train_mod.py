@@ -12,7 +12,7 @@ from openpoints.optim import build_optimizer_from_cfg
 from openpoints.scheduler import build_scheduler_from_cfg
 from openpoints.models import build_model_from_cfg
 from torchmetrics import MeanSquaredError, MeanAbsoluteError 
-from create_event_dataset_Lab_unslimmed import EventPointCloudDataset 
+from create_event_dataset import EventPointCloudDataset 
 from openpoints.models.regression.reg_head import RegressionHead 
 from RegressionModelWrapper import RegressionModelWrapper 
 
@@ -70,7 +70,7 @@ def main(gpu, cfg, profile=False):
     logging.info(model)
     logging.info('Number of params: %.4f M' % (model_size / 1e6))
     
-    criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda() 
+    criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda() # TODO change loss function to a binary one
 
     if cfg.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -90,7 +90,7 @@ def main(gpu, cfg, profile=False):
         h5_file_path=cfg.dataset.common.h5_file_path,
         num_points=cfg.dataset.common.num_points,
         use_transforms=cfg.dataset.common.get('transforms'), #Apply common transforms to the base dataset
-        max_samples=cfg.dataset.common.get('max_samples') #Pass the max_samples from YAML here
+        max_samples_per_category=cfg.dataset.common.get('max_samples') #Pass the max_samples from YAML here
     )
     total_samples = len(full_dataset)
     train_size=int(cfg.dataset.common.train_split*total_samples)
@@ -244,10 +244,10 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
     mse_meter = MeanSquaredError().to(cfg.rank)
     mae_meter = MeanAbsoluteError().to(cfg.rank)
 
-    pbar_val_setup_start_time = time.time()
-    pbar = tqdm(enumerate(val_loader), total=len(val_loader), desc=f"Evaluating validation")
-    pbar_val_setup_end_time = time.time()
-    logging.info(f"DEBUG TIMING: Val - pbar setup duration: {pbar_val_setup_end_time - pbar_val_setup_start_time:.4f}s")
+    # pbar_val_setup_start_time = time.time()
+    # pbar = tqdm(enumerate(val_loader), total=len(val_loader), desc=f"Evaluating validation")
+    # pbar_val_setup_end_time = time.time()
+    # logging.info(f"DEBUG TIMING: Val - pbar setup duration: {pbar_val_setup_end_time - pbar_val_setup_start_time:.4f}s")
 
 
     model.train()  #set model to training mode
@@ -270,6 +270,9 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         num_iter += 1
         
         model_compute_start = time.time()
+
+        print(f"pos: {np.shape(data_dict['pos'])}, x: {np.shape(data_dict['x'])}")
+        print(np.shape(data_dict['pos']))
         logits = model(data_dict) 
 
         loss = criterion(logits.squeeze(-1), target.squeeze(-1)) 

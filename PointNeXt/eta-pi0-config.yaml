@@ -37,8 +37,8 @@ train:
 dataset:
   common:
     NAME: 'create_event_dataset'
-    num_points: 2048
-    h5_file_path: '../../eta-pi-data/merged_Eta.h5'
+    num_points: 1024
+    h5_file_path: '../../eta-pi-data/eta-pi0.h5'
     max_samples: 100
     train_split: 0.7
     val_split: 0.15
@@ -61,7 +61,7 @@ model:
     sa_layers: 1 
     sa_use_res: True 
     width: 32
-    in_channels: 3
+    in_channels: 4 # Was 3
     expansion: 4
     radius: 0.1
     nsample: 32
@@ -84,7 +84,7 @@ model:
   head_args: 
     NAME: 'RegressionHead' 
     encoder_out_channels: 512 
-    out_dim: 1 #single regression output (opang)
+    out_dim: 1 #single regression output (binary)
     mlp_channels: [256, 128] # MLP layers within the head
     norm_args:
       norm: 'bn'

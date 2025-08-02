@@ -25,13 +25,11 @@ class EventPointCloudDataset(Dataset):
 
 		self.h5_file_store = []
 
-		self.preloaded_pc_data = []
-		self.preloaded_pc_target = []
-		self.preloaded_sequence_info = []
+		self.preloaded_pc_data = [] # Stores the data
+		self.preloaded_pc_target = [] # Stores the category info
+		self.preloaded_sequence_info = [] # Stores the indexes and other metadata
 		
 		with h5py.File(h5_file_path, 'r') as f:
-
-			print(f.keys())
 
 			label_index = 0 # Only works for binary groups
 			for group in f.keys():
@@ -44,8 +42,6 @@ class EventPointCloudDataset(Dataset):
 					print(f"Dataset truncated to {max_samples_per_category} samples per category for testing.")
 
 				self.num_samples += len(sequence_info)
-
-				print(sequence_info)
 
 				print(f"Preloading {len(sequence_info)} sets of PC data into RAM (this might take a moment if many samples)...")
 				for event_index, starting_index, num_points, _, _, _ in sequence_info:
@@ -61,9 +57,8 @@ class EventPointCloudDataset(Dataset):
 			self.preloaded_sequence_info = np.array(self.preloaded_sequence_info)
 			self.preloaded_pc_data = np.array(self.preloaded_pc_data)
 			self.preloaded_pc_target = np.array(self.preloaded_pc_target)
-			
-			print(f"Dataset initialized with {self.num_samples} events from {h5_file_path}.")
-			print(f"Finished preloading {len(self.preloaded_pc_data)} PC event data sets into RAM.")
+
+			print(f"Finished preloading {self.num_samples} PC event data sets from {h5_file_path} into RAM.")
 
 			# self.all_preloaded_pc_data={}
 			# self.all_preloaded_pc_targets={}
@@ -110,23 +105,14 @@ class EventPointCloudDataset(Dataset):
 	def __getitem__(self,indx):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
-			hdf5_select_start = time.time()
-			current_event_meta = self.event_metadata_df.iloc[indx]
-			rse_tuple = (current_event_meta['runNo'], current_event_meta['subRunNo'], current_event_meta['eventNo'])
-			
-
-			pc_data = self.all_preloaded_pc_data[rse_tuple]
-			opang =self.all_preloaded_pc_targets[rse_tuple]
+			hdf5_select_start = time.time()	
+			_, starting_index, num_points, _, _, _ = self.preloaded_sequence_info[indx]
+			pc_data = self.preloaded_pc_data[starting_index:starting_index+num_points]
+			pc_target =self.preloaded_pc_target[starting_index]
 			hdf5_select_end =  time.time()
 			print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
 
-
-			x_coords = pc_data["x"]
-			y_coords = pc_data["y"]
-			z_coords = pc_data["z"]
-		
-			#combine into 3 numpt array
-			points_xyz = np.stack([x_coords, y_coords, z_coords], axis=-1) 
+			points_xyz = pc_data.copy()
 			features = points_xyz.copy()
 			
 			N_original = points_xyz.shape[0]
@@ -136,13 +122,15 @@ class EventPointCloudDataset(Dataset):
 				points_xyz = points_xyz[sample_idx]
 				features = features[sample_idx]
 			elif N_original < self.num_points:
-				#Padding
+				#Padding zeros for missing points
 				padded_points_xyz = np.zeros((self.num_points, points_xyz.shape[1]), dtype=points_xyz.dtype)
 				padded_features = np.zeros((self.num_points, features.shape[1]), dtype=features.dtype)
 				padded_points_xyz[:N_original] = points_xyz
 				padded_features[:N_original] = features
 				points_xyz = padded_points_xyz
 				features = padded_features
+			else:
+				print(f'exact')
 
 			pos_tensor = torch.from_numpy(points_xyz).float()
 			feat_tensor = torch.from_numpy(features).float() 
@@ -150,7 +138,7 @@ class EventPointCloudDataset(Dataset):
 				
 			feat_tensor = feat_tensor.transpose(0, 1).contiguous() 
 			
-			target_tensor = torch.tensor(opang, dtype=torch.float) 
+			target_tensor = torch.tensor(pc_target, dtype=torch.float) 
 			
 			if self.transforms:
 				data_dict_for_transform = {'pos': pos_tensor, 'x': feat_tensor, 'y': target_tensor}
