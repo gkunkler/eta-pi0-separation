@@ -34,7 +34,8 @@ class RegressionHead(nn.Module):
 
 	def forward(self, features: torch.Tensor) -> torch.Tensor:
 		#maxpool
-		features_pooled=features.max(dim=-1, keepdim=False)[0]
+		# features_pooled=features.max(dim=-1, keepdim=False)[0]
+		features_pooled = features
 
 		#Multilayer perceptron 
 		mlp_input = features_pooled.unsqueeze(-1)

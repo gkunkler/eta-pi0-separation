@@ -15,6 +15,7 @@ from torchmetrics import MeanSquaredError, MeanAbsoluteError
 from create_event_dataset import EventPointCloudDataset 
 from openpoints.models.regression.reg_head import RegressionHead 
 from RegressionModelWrapper import RegressionModelWrapper 
+from ClassificationModelWrapper import ClassificationModelWrapper # adds this to the registry of models
 
 
 #Regression-specific helper functions
@@ -70,7 +71,8 @@ def main(gpu, cfg, profile=False):
     logging.info(model)
     logging.info('Number of params: %.4f M' % (model_size / 1e6))
     
-    criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda() # TODO change loss function to a binary one
+    criterion = nn.BCELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
+    # criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
 
     if cfg.sync_bn:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
@@ -133,9 +135,9 @@ def main(gpu, cfg, profile=False):
     logging.info(f"Length of test dataset: {len(test_loader.dataset)}")
     
     cfg.num_outputs = 1 
-    validate_fn = validate_regression 
+    validate_fn = validate_regression # TODO: Create BSE validation function
 
-    best_val_mse = float('inf') 
+    best_val_mse = float('inf') # TODO
     best_epoch = 0
 
     model.zero_grad() 
@@ -262,18 +264,21 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         target = target.cuda(non_blocking=True)
         data_load_end = time.time()
         
-        if torch.cuda.is_available() and idx % cfg.train.print_freq == 0: 
-            logging.info(f"Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
-            logging.info(f"Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
+        # if torch.cuda.is_available() and idx % cfg.train.print_freq == 0: 
+        #     logging.info(f"Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
+        #     logging.info(f"Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
 
 
         num_iter += 1
         
         model_compute_start = time.time()
 
-        print(f"pos: {np.shape(data_dict['pos'])}, x: {np.shape(data_dict['x'])}")
-        print(np.shape(data_dict['pos']))
+        # print(f"pos: {np.shape(data_dict['pos'])}, x: {np.shape(data_dict['x'])}, target: {np.shape(target)}")
         logits = model(data_dict) 
+
+        # print(f'logits: {np.shape(logits)}, target: {np.shape(target)}')
+        # print(f'{logits}')
+        # print(f'{target}')
 
         loss = criterion(logits.squeeze(-1), target.squeeze(-1)) 
 
@@ -291,14 +296,14 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         model_compute_end = time.time()
 
 
-        if idx % cfg.train.print_freq == 0:
-            logging.info(f"DEBUG TIMING: Train Batch {idx} - Data Load+Transfer: {data_load_end - data_load_start:.4f}s")
-            logging.info(f"DEBUG TIMING: Train Batch {idx} - Model Compute (Fwd+Bwd+Opt): {model_compute_end - model_compute_start:.4f}s")
-            logging.info(f"DEBUG TIMING: Train Batch {idx} - Total Batch Wall Time: {time.time() - batch_start_time:.4f}s")
-            #Check GPU Memory per batch (might spams so can remove)
-            if torch.cuda.is_available():
-                logging.info(f"DEBUG: Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
-                logging.info(f"DEBUG: Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
+        # if idx % cfg.train.print_freq == 0:
+        #     logging.info(f"DEBUG TIMING: Train Batch {idx} - Data Load+Transfer: {data_load_end - data_load_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Train Batch {idx} - Model Compute (Fwd+Bwd+Opt): {model_compute_end - model_compute_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Train Batch {idx} - Total Batch Wall Time: {time.time() - batch_start_time:.4f}s")
+        #     #Check GPU Memory per batch (might spams so can remove)
+        #     if torch.cuda.is_available():
+        #         logging.info(f"DEBUG: Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
+        #         logging.info(f"DEBUG: Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
 
         mse_meter.update(logits.squeeze(-1), target.squeeze(-1))
         mae_meter.update(logits.squeeze(-1), target.squeeze(-1))
@@ -306,7 +311,7 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         loss_meter.update(loss.item())
         if idx % cfg.train.print_freq == 0:
             pbar.set_description(f"Train Epoch [{epoch}/{cfg.epochs}] "
-                                 f"Loss {loss_meter.val:.3f} MSE {mse_meter.compute():.4f} MAE {mae_meter.compute():.4f}")
+                                 f"Loss {loss_meter.val:.3f} Avg {loss_meter.avg:.3f}")
     
     train_mse = mse_meter.compute()
     train_mae = mae_meter.compute()
@@ -337,6 +342,8 @@ def validate_regression(model, val_loader, criterion, cfg):
         model_compute_val_start = time.time()
         logits = model(data_dict)
 
+        # print(logits.argmax(dim=1))
+
         loss = criterion(logits.squeeze(-1), target.squeeze(-1))
         model_compute_val_end = time.time()
 
@@ -347,11 +354,11 @@ def validate_regression(model, val_loader, criterion, cfg):
         metrics_update_val_end = time.time()
 
 
-        if idx % cfg.train.print_freq == 0: 
-            logging.info(f"DEBUG TIMING: Val Batch {idx} - Data Load+Transfer: {data_load_val_end - data_load_val_start:.4f}s")
-            logging.info(f"DEBUG TIMING: Val Batch {idx} - Model Compute (Fwd+Loss): {model_compute_val_end - model_compute_val_start:.4f}s")
-            logging.info(f"DEBUG TIMING: Val Batch {idx} - Metrics Update: {metrics_update_val_end - metrics_update_val_start:.4f}s")
-            logging.info(f"DEBUG TIMING: Val Batch {idx} - Total Batch Wall Time: {time.time() - batch_val_start_time:.4f}s")
+        # if idx % cfg.train.print_freq == 0: 
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Data Load+Transfer: {data_load_val_end - data_load_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Model Compute (Fwd+Loss): {model_compute_val_end - model_compute_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Metrics Update: {metrics_update_val_end - metrics_update_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Total Batch Wall Time: {time.time() - batch_val_start_time:.4f}s")
 
         if idx % cfg.train.print_freq == 0:
             pbar.set_description(f"Val Epoch [{cfg.epochs}] "

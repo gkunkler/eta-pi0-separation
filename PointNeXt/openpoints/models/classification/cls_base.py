@@ -7,6 +7,7 @@ from ...utils import get_missing_parameters_message, get_unexpected_parameters_m
 from ..build import MODELS, build_model_from_cfg
 from ...loss import build_criterion_from_cfg
 from ...utils import load_checkpoint
+import numpy as np
 
 
 @MODELS.register_module()
@@ -119,7 +120,7 @@ class ClsHead(nn.Module):
                                             act_args=act_args))
             if dropout:
                 heads.append(nn.Dropout(dropout))
-        heads.append(create_linearblock(mlps[-2], mlps[-1], act_args=None))
+        heads.append(create_linearblock(mlps[-2], mlps[-1], act_args=act_args)) # modified to apply the sigmoid to final results
         self.head = nn.Sequential(*heads)
 
 

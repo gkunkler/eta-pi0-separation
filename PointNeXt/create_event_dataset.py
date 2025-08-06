@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 #easilt fecthable
 class EventPointCloudDataset(Dataset):
-	def __init__ (self, h5_file_path, num_points=2048, use_transforms=None, max_samples_per_category=None):
+	def __init__ (self, h5_file_path, num_points=512, use_transforms=None, max_samples_per_category=None):
 		self.h5_file_path=h5_file_path
 		self.num_points=num_points
 		if use_transforms:
@@ -32,6 +32,7 @@ class EventPointCloudDataset(Dataset):
 		with h5py.File(h5_file_path, 'r') as f:
 
 			label_index = 0 # Only works for binary groups
+			num_categories = len(f.keys())
 			for group in f.keys():
 
 				grp = f[group]
@@ -48,9 +49,12 @@ class EventPointCloudDataset(Dataset):
 
 					points = grp['point_info_centered'][starting_index:starting_index+num_points]
 
-					self.preloaded_sequence_info.extend(sequence_info)
+					self.preloaded_sequence_info.append([event_index, starting_index, num_points])
 					self.preloaded_pc_data.extend(points)
-					self.preloaded_pc_target.extend(np.ones(num_points)*label_index)
+
+					target = np.zeros(num_categories)
+					target[label_index] = 1
+					self.preloaded_pc_target.append(target)
 
 				label_index+=1
 
@@ -58,7 +62,7 @@ class EventPointCloudDataset(Dataset):
 			self.preloaded_pc_data = np.array(self.preloaded_pc_data)
 			self.preloaded_pc_target = np.array(self.preloaded_pc_target)
 
-			print(f"Finished preloading {self.num_samples} PC event data sets from {h5_file_path} into RAM.")
+		print(f"Finished preloading {self.num_samples} PC event data sets from {h5_file_path} into RAM.")
 
 			# self.all_preloaded_pc_data={}
 			# self.all_preloaded_pc_targets={}
@@ -105,15 +109,15 @@ class EventPointCloudDataset(Dataset):
 	def __getitem__(self,indx):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
-			hdf5_select_start = time.time()	
-			_, starting_index, num_points, _, _, _ = self.preloaded_sequence_info[indx]
+			# hdf5_select_start = time.time()	
+			_, starting_index, num_points = self.preloaded_sequence_info[indx]
 			pc_data = self.preloaded_pc_data[starting_index:starting_index+num_points]
-			pc_target =self.preloaded_pc_target[starting_index]
-			hdf5_select_end =  time.time()
-			print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
+			pc_target = self.preloaded_pc_target[indx]
+			# hdf5_select_end =  time.time()
+			# print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
 
-			points_xyz = pc_data.copy()
-			features = points_xyz.copy()
+			features = pc_data.copy()
+			points_xyz = features[:,1:4]
 			
 			N_original = points_xyz.shape[0]
 			if N_original > self.num_points:
@@ -139,6 +143,7 @@ class EventPointCloudDataset(Dataset):
 			feat_tensor = feat_tensor.transpose(0, 1).contiguous() 
 			
 			target_tensor = torch.tensor(pc_target, dtype=torch.float) 
+			# target_tensor = torch.transpose(target_tensor, 0,1)
 			
 			if self.transforms:
 				data_dict_for_transform = {'pos': pos_tensor, 'x': feat_tensor, 'y': target_tensor}
@@ -160,6 +165,6 @@ class EventPointCloudDataset(Dataset):
 
 if __name__ == "__main__":
 	HDF5_FILE_PATH = "../../eta-pi-data/eta-pi0.h5"
-	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=2048, max_samples_per_category=10)
-	data_dict, target = dataset[0]
+	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=512, max_samples_per_category=10)
+	data_dict, target = dataset[15]
 	print(f"POS shape: {data_dict['pos'].shape}, X shape: {data_dict['x'].shape}, Target shape: {target.shape}")

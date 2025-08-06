@@ -5,9 +5,9 @@ local_rank: 0
 launcher: null 
 deterministic: False
 epochs: 50
-lr: 0.001
+lr: 0.05 # was 0.001
 sched: 'cosine'
-save_freq: 10
+save_freq: 5
 
 # basic config
 common:
@@ -15,18 +15,18 @@ common:
   tensorboard: False
   wandb: 
     use_wandb: False 
-  exp_name: 'pointnext_opang_regression'
-  task_name: 'regression_events'
+  exp_name: 'pointnext_eta-pi0-classification'
+  task_name: 'classification_events'
 
-root_dir: 'log_regression'
+root_dir: 'eta-pi0-classification'
 
 
 train:
   print_freq: 1
   num_workers: 0
   batch_size: 32
-  num_epochs: 50
-  val_freq: 10
+  num_epochs: 10
+  val_freq: 5
   step_per_update: 1
   start_epoch: 0
   sched_on_epoch: True
@@ -37,9 +37,9 @@ train:
 dataset:
   common:
     NAME: 'create_event_dataset'
-    num_points: 1024
+    num_points: 1024 # Be careful when changing
     h5_file_path: '../../eta-pi-data/eta-pi0.h5'
-    max_samples: 100
+    max_samples: 500
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15
@@ -53,9 +53,9 @@ dataset:
 
 #model config
 model:
-  NAME: 'RegressionModelWrapper'
+  NAME: 'ClassificationModelWrapper'
   encoder_args:
-    NAME: 'PointNextEncoder'
+    NAME: 'PointNextEncoder' # PointNeXt/openpoints/models/backbone/pointnext.py
     blocks: [1, 4, 7, 4]
     strides: [4, 4, 4, 4]
     sa_layers: 1 
@@ -70,26 +70,36 @@ model:
       reduction: 'max'
     group_args:
       NAME: 'ballquery'
-      normalize_dp: True
+      normalize_dp: False
     conv_args: {}
     act_args:
-      act: 'relu'
+      act: 'relu' # was relu
     norm_args:
-      norm: 'bn'
-    #decoder_args:
-      #NAME: PointNextDecoder
+      norm: 'bn' # group norm # bn: nn.BatchNorm2d # from openpoints/models/layers/norm.py
+    # decoder_args:
+    #   NAME: PointNextDecoder
     sampler: 'fps'
     radius_scaling: 2
     nsample_scaling: 1
   head_args: 
-    NAME: 'RegressionHead' 
-    encoder_out_channels: 512 
-    out_dim: 1 #single regression output (binary)
-    mlp_channels: [256, 128] # MLP layers within the head
-    norm_args:
-      norm: 'bn'
+    NAME: 'ClsHead' # From openpoints/models/classification/cls_base.py
+    num_classes: 2
+    in_channels: 4
     act_args:
-      act: 'relu'
+      act: 'sigmoid'
+    mlps: [256]
+    # dropout: 0
+    # global_feat: 'max'
+    # point_dim: 1
+    
+    # NAME: 'RegressionHead'
+    # encoder_out_channels: 512 
+    # out_dim: 1 #single regression output (opang)
+    # mlp_channels: [256, 128] # MLP layers within the head
+    # norm_args:
+    #   norm: 'bn'
+    # act_args:
+    #   act: 'sigmoid'
 
 
 # Optimizer config
@@ -106,5 +116,5 @@ scheduler:
 
 # Loss config
 loss:
-  NAME: 'MSELoss' #Mean Squared Error for regression
+  NAME: 'BCELoss' #Binary Cross Entropy for classification
   reduction: 'mean'

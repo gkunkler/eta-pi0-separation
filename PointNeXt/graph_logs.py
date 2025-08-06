@@ -20,6 +20,8 @@ def parse_log_file(log_file_path):
                 lr = float(summary_match.group(2))
                 train_loss = float(summary_match.group(3))
                 val_mse_summary = float(summary_match.group(4)) 
+
+                print(train_loss)
                 
                 train_data_by_epoch[epoch] = {'loss': train_loss, 'lr': lr, 'mse': np.nan, 'mae': np.nan} 
                 val_data_by_epoch[epoch] = {'loss': np.nan, 'mse': val_mse_summary, 'mae': np.nan} 
@@ -32,6 +34,7 @@ def parse_log_file(log_file_path):
                 val_mse = float(val_detail_match.group(3))
                 val_mae = float(val_detail_match.group(4))
                 val_data_by_epoch[epoch] = {'loss': val_loss, 'mse': val_mse, 'mae': val_mae}
+                print(val_loss)
 
     # Convert dictionaries to sorted lists
     train_epochs = sorted(train_data_by_epoch.keys())
@@ -74,6 +77,7 @@ def plot_metrics(metrics_data, title_prefix="Training Metrics"):
     axes[0].set_ylabel('Loss')
     axes[0].legend()
     axes[0].grid(True)
+    # axes[0].set_yscale('log')
 
     # Plot MSE
     if metrics_data['train_epochs'] and metrics_data['train_mses']: 
@@ -148,17 +152,79 @@ def plot_2d_histogram(predictions_path, targets_path, title="Predicted vs. Actua
     plt.gca().set_aspect('equal', adjustable='box') # Ensures the x and y axes have the same scale
     plt.show()
 
+def plot_predictions(predictions_path, targets_path, title="Eta Pi0 Separation Results"):
+    """
+    Loads saved predictions and targets and plots a 2D histogram.
+    """
+    try:
+        predictions = np.load(predictions_path)
+        targets = np.load(targets_path)
+    except FileNotFoundError:
+        print(f"Error: Prediction or target file not found.")
+        print(f"  Predictions: {predictions_path}")
+        print(f"  Targets: {targets_path}")
+        return
+
+    # Handle cases where predictions/targets might be scalar arrays (if only one sample was saved)
+    if predictions.ndim == 0: 
+        predictions = np.array([predictions.item()])
+    if targets.ndim == 0:
+        targets = np.array([targets.item()])
+
+    # print(targets)
+    # print(predictions)
+
+    # Get just the second value which can represent the eta-ness
+    targets = targets[:,1]
+    predictions = predictions[:,1]
+        
+    # Ensure they are 1D arrays for histogramming
+    predictions = predictions.flatten()
+    targets = targets.flatten()
+
+    print(f'predictions: {predictions}')
+    print(f'targets{targets}')
+
+    if len(predictions) != len(targets) or len(predictions) == 0:
+        print("Error: Mismatched or empty prediction/target arrays.")
+        return
+
+    # Separate by target value
+    predictions_0 = predictions[targets==0]
+    predictions_1 = predictions[targets==1]
+
+    # Create bins
+    bins = np.linspace(0,1,20)
+    bin_centers = (bins[:-1]+bins[1:])/2
+    bin_width = np.diff(bins)[0]
+
+    # Create the histograms
+    # hist_0 = np.histogram(predictions_0, bins)[0]
+    # hist_1 = np.histogram(predictions_1, bins)[0]
+
+    fig, ax = plt.subplots(dpi=200)
+    ax.hist((predictions_0, predictions_1), bins, stacked=True, label=['0 (Pi0)', '1 (Eta)'], color=['g', 'b'])
+
+    # ax.hist(hist_1, bins, stacked=True, label='1', color='b')
+
+    plt.title(title)
+    plt.xlabel('Model Prediction')
+    plt.ylabel('Counts')
+    plt.legend()
+    plt.show()
+
 if __name__ == "__main__":
     # --- IMPORTANT: Configure this ---
     # The base components of your log directory structure:
-    LOG_ROOT_DIR = "log_regression" # This should match 'root_dir' in your YAML (corrected typo)
-    TASK_NAME = "regression_events" # This should match 'task_name' in your YAML
-    EXP_NAME_PREFIX = "pointnext_opang_regression" # This is the prefix of your run_name
+    LOG_ROOT_DIR = "eta-pi0-classification" # This should match 'root_dir' in your YAML (corrected typo)
+    TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
+    EXP_NAME_PREFIX = "pointnext_eta-pi0-classification" # This is the prefix of your run_name
 
     # You need to provide the EXACT full name of your timestamped run directory.
     # Copy this name from the 'run_dir' line in your console output when you run main.py
     # Example from your output: regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-161840-EqsuYrWNpLBN7Hrst9RBSj
-    ACTUAL_RUN_TIMESTAMPED_FOLDER = "regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-163143-dzs9hXcUBGvkXVmLafhyUS" # <--- UPDATE THIS EXACTLY!
+    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250805-163733-cEzcWRM4M5EBfwcyMtzPrQ" # <--- UPDATE THIS EXACTLY!
+
 
     # Construct the base_run_dir using os.path.join for platform compatibility
     # This assumes plot_logs.py is run from the 'eplusminus' directory.
@@ -188,8 +254,8 @@ if __name__ == "__main__":
     targets_file = os.path.join(base_run_dir, "best_epoch_test_targets.npy")
 
     if os.path.exists(predictions_file) and os.path.exists(targets_file):
-        print(f"\nPlotting 2D histogram from: {predictions_file} and {targets_file}")
-        plot_2d_histogram(predictions_file, targets_file, title="Angle Prediction Histogram (Best Epoch)")
+        print(f"\nPlotting final predictions from: {predictions_file} and {targets_file}")
+        plot_predictions(predictions_file, targets_file)
     else:
         print(f"\nError: Prediction/Target .npy files not found for 2D histogram.")
         print(f"Ensure training completed successfully and files were saved to: {base_run_dir}")
