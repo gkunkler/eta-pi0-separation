@@ -4,7 +4,7 @@ world_size: 1        #Number of processes/GPUs
 local_rank: 0 
 launcher: null 
 deterministic: False
-epochs: 10
+epochs: 50
 lr: 0.001 # was 0.001
 sched: 'cosine'
 save_freq: 5
@@ -25,7 +25,7 @@ train:
   print_freq: 1
   num_workers: 0
   batch_size: 32
-  num_epochs: 10
+  num_epochs: 50
   val_freq: 2
   step_per_update: 1
   start_epoch: 0
@@ -39,7 +39,7 @@ dataset:
     NAME: 'create_event_dataset'
     num_points: 1024 # Be careful when changing
     h5_file_path: '../../eta-pi-data/eta-pi0-testing.h5'
-    max_samples: 1000
+    max_samples: 5000
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15
@@ -87,7 +87,7 @@ model:
     in_channels: 4
     act_args:
       act: 'sigmoid'
-    mlps: [256, 128] # [256, 128]
+    mlps: [256, 128, 32] # [256, 128]
     # dropout: 0
     # global_feat: 'max'
     # point_dim: 1
@@ -106,12 +106,12 @@ model:
 optimizer:
   NAME: 'AdamW'
   lr: 0.001 # Was 0.001
-  weight_decay: 0.000001 # Was 0.0001
+  weight_decay: 0.00001 # Was 0.0001
 
 # Scheduler config
 scheduler:
   NAME: 'CosineAnnealingLR'
-  T_max: 10 # Should match num_epochs in train section
+  T_max: 50 # Should match num_epochs in train section
   eta_min: 0.00001 
 
 # Loss config

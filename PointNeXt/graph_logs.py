@@ -3,6 +3,9 @@ import re
 import os
 import sys
 import numpy as np
+from torchmetrics import ROC, AUROC
+import torch
+from coloredlines import colored_line
 
 # Should be the same as in slim_data.py
 interaction_descriptions = [([22, 22], 0),
@@ -157,32 +160,41 @@ def plot_2d_histogram(predictions_path, targets_path, title="Predicted vs. Actua
     plt.gca().set_aspect('equal', adjustable='box') # Ensures the x and y axes have the same scale
     plt.show()
 
-def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation Results"):
-    """
-    Loads saved predictions and targets and plots a 2D histogram.
-    """
+def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation ROC"):
+
     try:
         predictions = np.load(predictions_path)
         targets = np.load(targets_path)
-        descriptions = np.load(descriptions_path)
     except FileNotFoundError:
         print(f"Error: Prediction or target file not found.")
         print(f"  Predictions: {predictions_path}")
         print(f"  Targets: {targets_path}")
-        print(f"  Descriptions: {descriptions_path}")
+        
         return
-
+    
     # Handle cases where predictions/targets might be scalar arrays (if only one sample was saved)
     if predictions.ndim == 0: 
         predictions = np.array([predictions.item()])
     if targets.ndim == 0:
         targets = np.array([targets.item()])
-    if descriptions.ndim == 0:
-        descriptions = np.array([descriptions.item()])
         
     # Ensure they are 1D arrays for histogramming
     predictions = predictions.flatten()
     targets = targets.flatten()
+
+    # Get the descriptions if it exists
+    if os.path.exists(descriptions_file):
+        try:
+            descriptions = np.load(descriptions_path)
+            
+        except:
+            print(f"Descriptions not found: {descriptions_path}")
+            descriptions = np.ones(len(targets))*-1
+        if descriptions.ndim == 0:
+            descriptions = np.array([descriptions.item()])
+    else:
+        descriptions = np.ones(len(targets))*-1
+
     descriptions = descriptions.flatten()
 
     # print(f'predictions: {predictions}')
@@ -230,6 +242,54 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
     plt.legend()
     plt.show()
 
+def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results"):
+
+    try:
+        predictions = np.load(predictions_path)
+        targets = np.load(targets_path)
+    except FileNotFoundError:
+        print(f"Error: Prediction or target file not found.")
+        print(f"  Predictions: {predictions_path}")
+        print(f"  Targets: {targets_path}")
+        return
+
+    # Handle cases where predictions/targets might be scalar arrays (if only one sample was saved)
+    if predictions.ndim == 0: 
+        predictions = np.array([predictions.item()])
+    if targets.ndim == 0:
+        targets = np.array([targets.item()])
+        
+    # Ensure they are 1D arrays for histogramming
+    predictions = predictions.flatten()
+    targets = targets.flatten()
+
+    fig, ax = plt.subplots(dpi=200, figsize=(5,4))
+
+    roc = ROC(task="binary")
+    fpr, tpr, thresholds = roc(torch.tensor(predictions, dtype=torch.float), torch.tensor(targets, dtype=torch.int))
+
+    auroc = AUROC(task="binary")
+    auc = auroc(torch.tensor(predictions, dtype=torch.float), torch.tensor(targets, dtype=torch.int)).item()
+
+    # ax.plot(fpr, tpr)
+    line = colored_line(fpr, tpr, thresholds, ax, linewidth=3, cmap="plasma")
+    cb = fig.colorbar(line, )
+
+    ax.set_xlabel('1 - Eta Selection Purity (FP Rate)')
+    ax.set_ylabel('Eta Selection Efficiency (TP Rate)')
+    ax.set_title(f'Area Under Curve (AUC) = {auc:.2f}')
+    cb.set_label('Threshold')
+    ax.set_aspect('equal')
+
+    ax.plot([0,1], [0,1], linestyle='--', c='k', linewidth=1)
+
+    ax.set_xlim(0,1)
+    ax.set_ylim(0,1)
+
+    fig.suptitle('Receiver Operating Characteristic (ROC)')
+
+    plt.show()
+
 if __name__ == "__main__":
     # --- IMPORTANT: Configure this ---
     # The base components of your log directory structure:
@@ -241,7 +301,7 @@ if __name__ == "__main__":
     # You need to provide the EXACT full name of your timestamped run directory.
     # Copy this name from the 'run_dir' line in your console output when you run main.py
     # Example from your output: regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-161840-EqsuYrWNpLBN7Hrst9RBSj
-    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250807-185158-nPFqgPqTFZhK7N52d5DaCh" # <--- UPDATE THIS EXACTLY!
+    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250808-111411-hx9mKTB8fu6ndjxc646bK7" # <--- UPDATE THIS EXACTLY!
 
 
 
@@ -272,9 +332,10 @@ if __name__ == "__main__":
     targets_file = os.path.join(base_run_dir, "best_epoch_test_targets.npy")
     descriptions_file = os.path.join(base_run_dir, "best_epoch_test_descriptions.npy")
 
-    if os.path.exists(predictions_file) and os.path.exists(targets_file) and os.path.exists(descriptions_file):
+    if os.path.exists(predictions_file) and os.path.exists(targets_file):
         print(f"\nPlotting final predictions from: {predictions_file} and {targets_file}")
         plot_predictions(predictions_file, targets_file, descriptions_file)
+        plot_roc(predictions_file, targets_file)
     else:
         print(f"\nError: Prediction/Target .npy files not found for 2D histogram.")
         print(f"Ensure training completed successfully and files were saved to: {base_run_dir}")

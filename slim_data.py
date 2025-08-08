@@ -107,27 +107,30 @@ for file_name, label in zip(file_paths, labels):
         sequence_info_sp = sp['sequence_info'][:]
         sequence_info_h = h['sequence_info'][:]
         sequence_info_pt = pt['sequence_info'][:]
-        # sp_positions = sp['position'][:]
+        sp_positions = sp['position'][:]
         hit_id_sp = sp['hit_id'][:,2]
-        # hit_plane = h['local_plane'][:]
-        # hit_integral = h['integral'][:]
+        hit_plane = h['local_plane'][:]
+        hit_integral = h['integral'][:]
         
-        # rse = sp['event_id'][:]
+        rse = sp['event_id'][:]
+        parent_id = pt['parent_id'][:]
+        g4_pdg = pt['g4_pdg'][:]
 
-        sp_positions_buffer = FileBuffer(sp['position'])
-        hit_plane_buffer = FileBuffer(h['local_plane'])
-        hit_integral_buffer = FileBuffer(h['integral'])
-        rse_buffer = FileBuffer(sp['event_id'])
-        parent_id_buffer = FileBuffer(pt['parent_id'])
-        g4_pdg_buffer = FileBuffer(pt['g4_pdg'])
+        # Create buffer objects if these arrays are taking up too much space
+        # sp_positions_buffer = FileBuffer(sp['position'])
+        # hit_plane_buffer = FileBuffer(h['local_plane'])
+        # hit_integral_buffer = FileBuffer(h['integral'])
+        # rse_buffer = FileBuffer(sp['event_id'])
+        # parent_id_buffer = FileBuffer(pt['parent_id'])
+        # g4_pdg_buffer = FileBuffer(pt['g4_pdg'])
         
         # Lists to store the data that will be put into the new file
         sequence_info_new = [] # Contains event_id, starting_index, num_points, run, subrun, event, description (length is the number of events)
         point_info_new = [] # Contains x, y, z, integral
         point_info_centered_new = [] # Contains centered_x, centered_y, centered_z, integral
 
-        event_cap = min(len(sequence_info_sp), 10000)
-        print(f'Connecting spacepoint and hit data (first {event_cap} events)')
+        event_cap = min(len(sequence_info_sp), 20000)
+        print(f'Connecting spacepoint and hit data ({event_cap} events)')
 
 
         h_index = 0 # Index to start looking for event_index in sequence_index_h
@@ -137,8 +140,8 @@ for file_name, label in zip(file_paths, labels):
             # Get the event sequence_data in spacepoint_table
             event_index, starting_index, num_points = sequence_info_sp[i]
             hit_ids = hit_id_sp[starting_index:starting_index+num_points]
-            # run, subrun, event = rse[starting_index]
-            run, subrun, event = rse_buffer[starting_index]
+            run, subrun, event = rse[starting_index]
+            # run, subrun, event = rse_buffer[starting_index]
 
             # Find the matching event index in hit_table
             #  Assumes that sequence_info_h[:,0] has only unique values
@@ -158,10 +161,10 @@ for file_name, label in zip(file_paths, labels):
 
             # The charge integral on y-plane associated with each hit from the current event
             #  Assumes the hit_ids in the hit_table are in order starting at zero
-            # integrals = hit_integral[starting_index_h+hit_ids][:,0] 
-            integrals = hit_integral_buffer[starting_index_h+hit_ids][:,0] 
-            planes = hit_plane_buffer[starting_index_h+hit_ids][:,0]
-            # planes = hit_plane[starting_index_h+hit_ids][:,0]
+            integrals = hit_integral[starting_index_h+hit_ids][:,0] 
+            # integrals = hit_integral_buffer[starting_index_h+hit_ids][:,0] 
+            # planes = hit_plane_buffer[starting_index_h+hit_ids][:,0]
+            planes = hit_plane[starting_index_h+hit_ids][:,0]
 
             included_hit_ids = []
 
@@ -181,8 +184,8 @@ for file_name, label in zip(file_paths, labels):
                     included_hit_ids.append(hit_id)
 
                     # Add point info to the new lists
-                    # x, y, z = sp_positions[starting_index+k,:]
-                    x, y, z = sp_positions_buffer[starting_index+k]
+                    x, y, z = sp_positions[starting_index+k,:]
+                    # x, y, z = sp_positions_buffer[starting_index+k]
                     integral = integrals[k]
                     point_info_new.append([x,y,z,integral])
 
@@ -199,7 +202,8 @@ for file_name, label in zip(file_paths, labels):
 
             event_index_pt, starting_index_pt, num_points_pt = sequence_info_pt[pt_index]
 
-            primary_particles = g4_pdg_buffer[np.where(parent_id_buffer[np.array(list(range(starting_index_pt, starting_index_pt+num_points_pt)))] == 0)[0]]
+            # primary_particles = g4_pdg_buffer[np.where(parent_id_buffer[np.array(list(range(starting_index_pt, starting_index_pt+num_points_pt)))] == 0)[0]]
+            primary_particles = g4_pdg[np.where(parent_id[starting_index_pt: starting_index_pt+num_points_pt] == 0)[0]]
 
             particle_description = -1
             for particles, description in interaction_descriptions:
