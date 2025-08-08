@@ -4,8 +4,8 @@ world_size: 1        #Number of processes/GPUs
 local_rank: 0 
 launcher: null 
 deterministic: False
-epochs: 50
-lr: 0.05 # was 0.001
+epochs: 10
+lr: 0.001 # was 0.001
 sched: 'cosine'
 save_freq: 5
 
@@ -26,7 +26,7 @@ train:
   num_workers: 0
   batch_size: 32
   num_epochs: 10
-  val_freq: 5
+  val_freq: 2
   step_per_update: 1
   start_epoch: 0
   sched_on_epoch: True
@@ -38,8 +38,8 @@ dataset:
   common:
     NAME: 'create_event_dataset'
     num_points: 1024 # Be careful when changing
-    h5_file_path: '../../eta-pi-data/eta-pi0.h5'
-    max_samples: 500
+    h5_file_path: '../../eta-pi-data/eta-pi0-testing.h5'
+    max_samples: 1000
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15
@@ -83,11 +83,11 @@ model:
     nsample_scaling: 1
   head_args: 
     NAME: 'ClsHead' # From openpoints/models/classification/cls_base.py
-    num_classes: 2
+    num_classes: 1
     in_channels: 4
     act_args:
       act: 'sigmoid'
-    mlps: [256]
+    mlps: [256, 128] # [256, 128]
     # dropout: 0
     # global_feat: 'max'
     # point_dim: 1
@@ -105,13 +105,13 @@ model:
 # Optimizer config
 optimizer:
   NAME: 'AdamW'
-  lr: 0.001
-  weight_decay: 0.0001
+  lr: 0.001 # Was 0.001
+  weight_decay: 0.000001 # Was 0.0001
 
 # Scheduler config
 scheduler:
   NAME: 'CosineAnnealingLR'
-  T_max: 50 # Should match num_epochs in train section
+  T_max: 10 # Should match num_epochs in train section
   eta_min: 0.00001 
 
 # Loss config

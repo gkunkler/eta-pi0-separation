@@ -11,7 +11,7 @@ from openpoints.transforms import build_transforms_from_cfg
 from openpoints.optim import build_optimizer_from_cfg
 from openpoints.scheduler import build_scheduler_from_cfg
 from openpoints.models import build_model_from_cfg
-from torchmetrics import MeanSquaredError, MeanAbsoluteError 
+from torchmetrics import MeanSquaredError, MeanAbsoluteError, F1Score, Accuracy, Precision, ConfusionMatrix
 from create_event_dataset import EventPointCloudDataset 
 from openpoints.models.regression.reg_head import RegressionHead 
 from RegressionModelWrapper import RegressionModelWrapper 
@@ -23,6 +23,17 @@ def print_regression_results(loss, mse, mae, epoch_val, cfg):
     s = f'\nE@{epoch_val}\tLoss: {loss:.4f}\tMSE: {mse:.4f}\tMAE: {mae:.4f}\n'
     logging.info(s)
 
+# Classification Helper Functions
+def print_classification_results(loss, accuracy, precision, epoch_val, cfg): 
+    s = f'\nE@{epoch_val}\tLoss: {loss:.4f}\tAccuracy: {accuracy:.4f}\tPrecision: {precision:.4f}\n'
+    logging.info(s)
+
+def create_metrics(rank):
+    loss_meter = AverageMeter()
+    accuracy_meter = Accuracy(task='binary', num_classes=2).to(rank)
+    precision_meter = Precision(task='binary', num_classes=2).to(rank)
+
+    return loss_meter, accuracy_meter, precision_meter
 
 def main(gpu, cfg, profile=False):
     if cfg.distributed:
@@ -36,7 +47,6 @@ def main(gpu, cfg, profile=False):
     
     #Logger setup
     setup_logger_dist(cfg.log_path, cfg.rank, name=cfg.dataset.common.NAME)
-    
    
     if cfg.rank == 0 : 
         if cfg.common.tensorboard:
@@ -71,7 +81,8 @@ def main(gpu, cfg, profile=False):
     logging.info(model)
     logging.info('Number of params: %.4f M' % (model_size / 1e6))
     
-    criterion = nn.BCELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
+    # criterion = nn.BCELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
+    criterion = nn.BCEWithLogitsLoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
     # criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
 
     if cfg.sync_bn:
@@ -135,9 +146,9 @@ def main(gpu, cfg, profile=False):
     logging.info(f"Length of test dataset: {len(test_loader.dataset)}")
     
     cfg.num_outputs = 1 
-    validate_fn = validate_regression # TODO: Create BSE validation function
+    validate_fn = validate_classification
 
-    best_val_mse = float('inf') # TODO
+    best_val_loss = float('inf')
     best_epoch = 0
 
     model.zero_grad() 
@@ -150,44 +161,48 @@ def main(gpu, cfg, profile=False):
         if hasattr(train_loader.dataset, 'epoch'):
             train_loader.dataset.epoch = epoch - 1 
         
+        # Perform training every epoch
         train_loop_start = time.time()
-        train_loss, train_mse, train_mae = \
+        train_loss, train_accuracy, train_precision = \
             train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion, cfg)
         train_loop_end = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} - train_one_epoch duration: {train_loop_end - train_loop_start:.2f} seconds")
 
+        # Perform validation calculations on some epochs
         val_check_start = time.time()
-        val_loss, val_mse, val_mae = float('inf'), float('inf'), float('inf') 
+        val_loss, val_accuracy, val_precision = float('inf'), float('inf'), float('inf') 
         is_best = False
         if epoch % cfg.train.val_freq == 0:
-            val_loss, val_mse, val_mae = validate_fn(
-                model, val_loader, criterion, cfg) 
+            val_loss, val_accuracy, val_precision = validate_fn(model, val_loader, criterion, epoch, cfg) 
             
-            is_best = val_mse < best_val_mse 
+            is_best = val_loss < best_val_loss 
             if is_best:
-                best_val_mse = val_mse
+                best_val_loss = val_loss
                 best_epoch = epoch
-                logging.info(f'Found a better checkpoint @E{epoch} with MSE: {best_val_mse:.4f}')
+                logging.info(f'Found a better checkpoint @E{epoch} with loss: {best_val_loss:.4f}')
             
-            print_regression_results(val_loss, val_mse, val_mae, epoch, cfg)
+            print_classification_results(val_loss, val_accuracy, val_precision, epoch, cfg)
+
+            # Print statement for picking up by graph_logs.py
+            logging.info(f'VALIDATION RESULTS: Epoch {epoch} val_loss {val_loss:.4f}, val_accuracy {val_accuracy:.4f}, val_precision {val_precision:.4f}')
         val_check_end = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} - Validation check block duration: {val_check_end - val_check_start:.2f} seconds")
 
-
+        # Print statements that can be picked up by graph_logs.py
         lr = optimizer.param_groups[0]['lr']
-        logging.info(f'Epoch {epoch} LR {lr:.6f} '
-                     f'train_loss {train_loss:.4f}, val_mse {val_mse:.4f}, best val mse {best_val_mse:.4f}')
+        logging.info(f'TRAINING PROGRESS: Epoch {epoch} LR {lr:.6f} train_loss {train_loss:.4f}, train_accuracy {train_accuracy:.4f}, train_precision {train_precision:.4f}')
         
+
         tb_log_start = time.time()
         if writer is not None: 
             writer.add_scalar('train/loss', train_loss, epoch)
-            writer.add_scalar('train/mse', train_mse, epoch)
-            writer.add_scalar('train/mae', train_mae, epoch)
+            writer.add_scalar('train/accuracy', train_accuracy, epoch)
+            writer.add_scalar('train/precision', train_precision, epoch)
             writer.add_scalar('lr', lr, epoch)
             writer.add_scalar('val/loss', val_loss, epoch)
-            writer.add_scalar('val/mse', val_mse, epoch)
-            writer.add_scalar('val/mae', val_mae, epoch)
-            writer.add_scalar('best_val_mse', best_val_mse, epoch)
+            writer.add_scalar('val/accuracy', val_accuracy, epoch)
+            writer.add_scalar('val/precision', val_precision, epoch)
+            writer.add_scalar('best_val_loss', best_val_loss, epoch)
             writer.add_scalar('epoch', epoch, epoch)
         tb_log_end = time.time()
         logging.info(f"DEBUG TIMING: Epoch {epoch} - TensorBoard logging duration: {tb_log_end - tb_log_start:.2f} seconds")
@@ -202,7 +217,7 @@ def main(gpu, cfg, profile=False):
         save_ckpt_start = time.time()
         if cfg.rank == 0: 
             save_checkpoint(cfg, model, epoch, optimizer, scheduler,
-                            additioanl_dict={'best_val_mse': best_val_mse}, 
+                            additioanl_dict={'best_val_loss': best_val_loss}, 
                             is_best=is_best
                             )
         save_ckpt_end = time.time()
@@ -215,22 +230,24 @@ def main(gpu, cfg, profile=False):
 
     
     # Test the last epoch model 
-    test_loss_last, test_mse_last, test_mae_last = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="last_epoch_test")
-    print_regression_results(test_loss_last, test_mse_last, test_mae_last, cfg.epochs, cfg)
+    test_loss_last, test_accuracy_last, test_precision_last = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="last_epoch_test")
+    print_classification_results(test_loss_last, test_accuracy_last, test_precision_last, cfg.epochs, cfg)
     if writer is not None:
         writer.add_scalar('test/loss_last_epoch', test_loss_last, cfg.epochs)
-        writer.add_scalar('test/mse_last_epoch', test_mse_last, cfg.epochs)
-        writer.add_scalar('test/mae_last_epoch', test_mae_last, cfg.epochs)
+        writer.add_scalar('test/accuracy_last_epoch', test_accuracy_last, cfg.epochs)
+        writer.add_scalar('test/precision_last_epoch', test_precision_last, cfg.epochs)
 
     # Test the best validataion model
     best_epoch_loaded, _ = load_checkpoint(model, pretrained_path=os.path.join(
         cfg.ckpt_dir, f'{cfg.run_name}_ckpt_best.pth'))
-    test_loss_best, test_mse_best, test_mae_best = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="best_epoch_test")
+    test_loss_best, test_accuracy_best, test_precision_best = validate_and_save_predictions(model, test_loader, criterion, cfg, split_name="best_epoch_test")
     if writer is not None:
         writer.add_scalar('test/loss_best_val_epoch', test_loss_best, best_epoch_loaded)
-        writer.add_scalar('test/mse_best_val_epoch', test_mse_best, best_epoch_loaded)
-        writer.add_scalar('test/mae_best_val_epoch', test_mae_best, best_epoch_loaded)
-    print_regression_results(test_loss_best, test_mse_best, test_mae_best, best_epoch_loaded, cfg)
+        writer.add_scalar('test/accuracy_best_val_epoch', test_accuracy_best, best_epoch_loaded)
+        writer.add_scalar('test/precision_best_val_epoch', test_precision_best, best_epoch_loaded)
+    print_classification_results(test_loss_best, test_accuracy_best, test_precision_best, best_epoch_loaded, cfg)
+
+    logging.info(f'{cfg.run_name}')
 
     #Close TensorBoard writer (if active)
     if writer is not None:
@@ -242,9 +259,8 @@ def main(gpu, cfg, profile=False):
 
 #Modified train_one_epoch function
 def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion, cfg): # Added criterion param
-    loss_meter = AverageMeter()
-    mse_meter = MeanSquaredError().to(cfg.rank)
-    mae_meter = MeanAbsoluteError().to(cfg.rank)
+    
+    loss_meter, accuracy_meter, precision_meter = create_metrics(cfg.rank)
 
     # pbar_val_setup_start_time = time.time()
     # pbar = tqdm(enumerate(val_loader), total=len(val_loader), desc=f"Evaluating validation")
@@ -305,18 +321,17 @@ def train_one_epoch(model, train_loader, optimizer, scheduler, epoch, criterion,
         #         logging.info(f"DEBUG: Batch {idx} CUDA memory allocated: {torch.cuda.memory_allocated() / (1024**2):.2f} MB")
         #         logging.info(f"DEBUG: Batch {idx} CUDA memory cached: {torch.cuda.memory_cached() / (1024**2):.2f} MB")
 
-        mse_meter.update(logits.squeeze(-1), target.squeeze(-1))
-        mae_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        accuracy_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        precision_meter.update(logits.squeeze(-1), target.squeeze(-1))
         
         loss_meter.update(loss.item())
         if idx % cfg.train.print_freq == 0:
-            pbar.set_description(f"Train Epoch [{epoch}/{cfg.epochs}] "
-                                 f"Loss {loss_meter.val:.3f} Avg {loss_meter.avg:.3f}")
+            pbar.set_description(f"Train Epoch [{epoch}/{cfg.epochs}] Loss {loss_meter.val:.3f} Avg {loss_meter.avg:.3f}")
     
-    train_mse = mse_meter.compute()
-    train_mae = mae_meter.compute()
+    train_accuracy = accuracy_meter.compute()
+    train_precision = precision_meter.compute()
     
-    return loss_meter.avg, train_mse, train_mae
+    return loss_meter.avg, train_accuracy, train_precision
 
 
 @torch.no_grad()
@@ -371,16 +386,66 @@ def validate_regression(model, val_loader, criterion, cfg):
     return val_loss, val_mse, val_mae
 
 @torch.no_grad()
+def validate_classification(model, val_loader, criterion, epoch, cfg): 
+    model.eval() 
+    loss_meter, accuracy_meter, precision_meter = create_metrics(cfg.rank)
+
+    pbar = tqdm(enumerate(val_loader), total=len(val_loader))
+    for idx, (data_dict, target) in pbar: 
+
+        batch_val_start_time = time.time()
+
+
+        data_load_val_start = time.time()
+        data_dict['pos'] = data_dict['pos'].cuda(non_blocking=True)
+        data_dict['x'] = data_dict['x'].cuda(non_blocking=True)
+        target = target.cuda(non_blocking=True)
+        data_load_val_end = time.time()
+
+
+        model_compute_val_start = time.time()
+        logits = model(data_dict)
+
+        # print(logits.argmax(dim=1))
+
+        # print(target.squeeze(-1))
+        # print(logits.squeeze(-1))
+
+        loss = criterion(logits.squeeze(-1), target.squeeze(-1))
+        model_compute_val_end = time.time()
+
+        metrics_update_val_start = time.time()
+        accuracy_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        precision_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        loss_meter.update(loss.item())
+        metrics_update_val_end = time.time()
+
+
+        # if idx % cfg.train.print_freq == 0: 
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Data Load+Transfer: {data_load_val_end - data_load_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Model Compute (Fwd+Loss): {model_compute_val_end - model_compute_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Metrics Update: {metrics_update_val_end - metrics_update_val_start:.4f}s")
+        #     logging.info(f"DEBUG TIMING: Val Batch {idx} - Total Batch Wall Time: {time.time() - batch_val_start_time:.4f}s")
+
+        if idx % cfg.train.print_freq == 0:
+            pbar.set_description(f"Val Epoch [{epoch}/{cfg.epochs}] Loss {loss_meter.val:.3f} Accuracy {accuracy_meter.compute():.4f} Precision {precision_meter.compute():.4f}")
+    
+    val_accuracy = accuracy_meter.compute()
+    val_precision = precision_meter.compute()
+    val_loss = loss_meter.avg 
+
+    return val_loss, val_accuracy, val_precision
+
+@torch.no_grad()
 def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name="test"):
     #Validates the model and saves all individual predictions and ground truth targets to disk.
     model.eval() 
-    loss_meter = AverageMeter()
-    mse_meter = MeanSquaredError().to(cfg.rank)
-    mae_meter = MeanAbsoluteError().to(cfg.rank)
+    loss_meter, accuracy_meter, precision_meter = create_metrics(cfg.rank)
 
-    #Lists to store predictions and targets from all batches
+    #Lists to store predictions and targets from all batches (+ additional description about type of interaction)
     all_predictions = []
     all_targets = []
+    all_descriptions = []
 
     pbar = tqdm(enumerate(data_loader), total=len(data_loader), desc=f"Evaluating {split_name}")
     for idx, (data_dict, target) in pbar: 
@@ -392,30 +457,33 @@ def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name
 
         loss = criterion(logits.squeeze(-1), target.squeeze(-1))
         
-        mse_meter.update(logits.squeeze(-1), target.squeeze(-1))
-        mae_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        accuracy_meter.update(logits.squeeze(-1), target.squeeze(-1))
+        precision_meter.update(logits.squeeze(-1), target.squeeze(-1))
 
         loss_meter.update(loss.item())
         
         # Store predictions and targets
         all_predictions.append(logits.squeeze(-1).cpu().detach().numpy())
         all_targets.append(target.squeeze(-1).cpu().detach().numpy())
+        all_descriptions.append(data_dict['description'])
     
     # Concatenate all collected arrays
     predictions_array = np.concatenate(all_predictions, axis=0)
     targets_array = np.concatenate(all_targets, axis=0)
+    descriptions_array = np.concatenate(all_descriptions, axis=0)
 
     # Save to disk in the run's log directory
     pred_path = os.path.join(cfg.run_dir, f"{split_name}_predictions.npy")
     target_path = os.path.join(cfg.run_dir, f"{split_name}_targets.npy")
+    description_path = os.path.join(cfg.run_dir, f"{split_name}_descriptions.npy")
     
     np.save(pred_path, predictions_array)
     np.save(target_path, targets_array)
-    logging.info(f"Saved {split_name} predictions to: {pred_path}")
-    logging.info(f"Saved {split_name} targets to: {target_path}")
+    np.save(description_path, descriptions_array)
+    logging.info(f'Saved {split_name} predictions, targets, and descriptions')
 
-    final_mse = mse_meter.compute()
-    final_mae = mae_meter.compute()
+    final_accuracy = accuracy_meter.compute()
+    final_precision = precision_meter.compute()
     final_loss = loss_meter.avg 
 
-    return final_loss, final_mse, final_mae
+    return final_loss, final_accuracy, final_precision

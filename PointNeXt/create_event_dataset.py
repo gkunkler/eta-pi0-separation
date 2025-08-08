@@ -8,6 +8,7 @@ import os
 from openpoints.transforms import build_transforms_from_cfg
 import time
 from tqdm import tqdm
+import random
 
 #easilt fecthable
 class EventPointCloudDataset(Dataset):
@@ -28,6 +29,7 @@ class EventPointCloudDataset(Dataset):
 		self.preloaded_pc_data = [] # Stores the data
 		self.preloaded_pc_target = [] # Stores the category info
 		self.preloaded_sequence_info = [] # Stores the indexes and other metadata
+
 		
 		with h5py.File(h5_file_path, 'r') as f:
 
@@ -39,28 +41,37 @@ class EventPointCloudDataset(Dataset):
 				sequence_info = grp['sequence_info_filtered']
 				
 				if max_samples_per_category is not None and max_samples_per_category > 0 and max_samples_per_category < len(sequence_info):
-					sequence_info = sequence_info[:max_samples_per_category] # Take the first N samples
-					print(f"Dataset truncated to {max_samples_per_category} samples per category for testing.")
+
+					# sequence_info = sequence_info[:max_samples_per_category] # Take the first N samples
+
+					sequence_info = random.sample(list(sequence_info), max_samples_per_category) # Randomly pick N samples
+
+					print(f"Dataset truncated to {max_samples_per_category} random samples per category for testing.")
 
 				self.num_samples += len(sequence_info)
 
 				print(f"Preloading {len(sequence_info)} sets of PC data into RAM (this might take a moment if many samples)...")
-				for event_index, starting_index, num_points, _, _, _ in sequence_info:
+				for event_index, starting_index, num_points, _, _, _, description in sequence_info:
 
 					points = grp['point_info_centered'][starting_index:starting_index+num_points]
 
-					self.preloaded_sequence_info.append([event_index, starting_index, num_points])
+					self.preloaded_sequence_info.append([event_index, starting_index, num_points, description])
+
 					self.preloaded_pc_data.extend(points)
 
 					target = np.zeros(num_categories)
 					target[label_index] = 1
-					self.preloaded_pc_target.append(target)
+					self.preloaded_pc_target.append(target[1])
+
+				
 
 				label_index+=1
 
 			self.preloaded_sequence_info = np.array(self.preloaded_sequence_info)
 			self.preloaded_pc_data = np.array(self.preloaded_pc_data)
 			self.preloaded_pc_target = np.array(self.preloaded_pc_target)
+
+			print(f'descriptions: {self.preloaded_sequence_info[:,3]}')
 
 		print(f"Finished preloading {self.num_samples} PC event data sets from {h5_file_path} into RAM.")
 
@@ -110,14 +121,14 @@ class EventPointCloudDataset(Dataset):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
 			# hdf5_select_start = time.time()	
-			_, starting_index, num_points = self.preloaded_sequence_info[indx]
+			_, starting_index, num_points, description = self.preloaded_sequence_info[indx]
 			pc_data = self.preloaded_pc_data[starting_index:starting_index+num_points]
 			pc_target = self.preloaded_pc_target[indx]
 			# hdf5_select_end =  time.time()
 			# print(f"DEBUG DATASET: GetItem {indx} - HDF5 Select Duration: {hdf5_select_end - hdf5_select_start:.4f}s")
 
 			features = pc_data.copy()
-			points_xyz = features[:,1:4]
+			points_xyz = features[:,0:3]
 			
 			N_original = points_xyz.shape[0]
 			if N_original > self.num_points:
@@ -133,8 +144,6 @@ class EventPointCloudDataset(Dataset):
 				padded_features[:N_original] = features
 				points_xyz = padded_points_xyz
 				features = padded_features
-			else:
-				print(f'exact')
 
 			pos_tensor = torch.from_numpy(points_xyz).float()
 			feat_tensor = torch.from_numpy(features).float() 
@@ -154,7 +163,7 @@ class EventPointCloudDataset(Dataset):
 				target_tensor = data_dict_for_transform['y']
 
 			# Return as a dict for inputs, and the target
-			data_dict = {'pos': pos_tensor, 'x': feat_tensor} 
+			data_dict = {'pos': pos_tensor, 'x': feat_tensor, 'description':description} 
 			
 			return data_dict, target_tensor
 

@@ -4,6 +4,13 @@ import os
 import sys
 import numpy as np
 
+# Should be the same as in slim_data.py
+interaction_descriptions = [([22, 22], 0),
+                            ([111, 211, -211], 1),
+                            ([111, 111, 111], 2),
+                            ([111, 111], 3),
+                            ([111], 4)]
+
 def parse_log_file(log_file_path):
     """
     Parses the stdout.log file to extract training and validation metrics per epoch.
@@ -14,51 +21,49 @@ def parse_log_file(log_file_path):
     with open(log_file_path, 'r') as f:
         for line in f:
             # Capture final epoch summary line
-            summary_match = re.search(r"Epoch (\d+) LR ([\d.]+) train_loss ([\d.]+), val_mse ([\d.]+), best val mse ([\d.]+)", line)
+            summary_match = re.search(r"TRAINING PROGRESS: Epoch (\d+) LR ([\d.]+) train_loss ([\d.]+), train_accuracy ([\d.]+), train_precision ([\d.]+)", line)
             if summary_match:
                 epoch = int(summary_match.group(1))
                 lr = float(summary_match.group(2))
                 train_loss = float(summary_match.group(3))
-                val_mse_summary = float(summary_match.group(4)) 
-
-                print(train_loss)
+                train_accuracy = float(summary_match.group(4)) 
+                train_precision = float(summary_match.group(5)) 
                 
-                train_data_by_epoch[epoch] = {'loss': train_loss, 'lr': lr, 'mse': np.nan, 'mae': np.nan} 
-                val_data_by_epoch[epoch] = {'loss': np.nan, 'mse': val_mse_summary, 'mae': np.nan} 
+                train_data_by_epoch[epoch] = {'loss': train_loss, 'lr': lr, 'accuracy': train_accuracy, 'precision': train_precision} 
+                # val_data_by_epoch[epoch] = {'loss': np.nan, 'mse': val_mse_summary, 'mae': np.nan} 
 
             # Capture accurate val data (if val_freq is > 1, this line won't appear every epoch)
-            val_detail_match = re.search(r"Val Epoch \[(\d+)\] Loss ([\d.]+) MSE ([\d.]+) MAE ([\d.]+)", line)
+            val_detail_match = re.search(r"VALIDATION RESULTS: Epoch (\d+) val_loss ([\d.]+), val_accuracy ([\d.]+), val_precision ([\d.]+)", line)
             if val_detail_match:
                 epoch = int(val_detail_match.group(1))
                 val_loss = float(val_detail_match.group(2))
-                val_mse = float(val_detail_match.group(3))
-                val_mae = float(val_detail_match.group(4))
-                val_data_by_epoch[epoch] = {'loss': val_loss, 'mse': val_mse, 'mae': val_mae}
-                print(val_loss)
+                val_accuracy = float(val_detail_match.group(3))
+                val_precision = float(val_detail_match.group(4))
+                val_data_by_epoch[epoch] = {'loss': val_loss, 'accuracy': val_accuracy, 'precision': val_precision}
 
     # Convert dictionaries to sorted lists
     train_epochs = sorted(train_data_by_epoch.keys())
     train_losses = [train_data_by_epoch[e]['loss'] for e in train_epochs]
-    train_mses = [train_data_by_epoch[e].get('mse', np.nan) for e in train_epochs] 
-    train_maes = [train_data_by_epoch[e].get('mae', np.nan) for e in train_epochs] 
+    train_accuracies = [train_data_by_epoch[e].get('accuracy', np.nan) for e in train_epochs] 
+    train_precisions = [train_data_by_epoch[e].get('precision', np.nan) for e in train_epochs] 
     train_lrs = [train_data_by_epoch[e]['lr'] for e in train_epochs]
 
     val_epochs = sorted(val_data_by_epoch.keys())
     val_losses = [val_data_by_epoch[e]['loss'] for e in val_epochs]
-    val_mses = [val_data_by_epoch[e]['mse'] for e in val_epochs]
-    val_maes = [val_data_by_epoch[e]['mae'] for e in val_epochs]
+    val_accuracies = [val_data_by_epoch[e]['accuracy'] for e in val_epochs]
+    val_precisions = [val_data_by_epoch[e]['precision'] for e in val_epochs]
 
 
     return {
         'train_epochs': train_epochs,
         'train_losses': train_losses,
-        'train_mses': train_mses,
-        'train_maes': train_maes,
+        'train_accuracies': train_accuracies,
+        'train_precisions': train_precisions,
         'train_lrs': train_lrs,
         'val_epochs': val_epochs,
         'val_losses': val_losses,
-        'val_mses': val_mses,
-        'val_maes': val_maes,
+        'val_accuracies': val_accuracies,
+        'val_precisions': val_precisions,
     }
 
 def plot_metrics(metrics_data, title_prefix="Training Metrics"):
@@ -79,25 +84,25 @@ def plot_metrics(metrics_data, title_prefix="Training Metrics"):
     axes[0].grid(True)
     # axes[0].set_yscale('log')
 
-    # Plot MSE
-    if metrics_data['train_epochs'] and metrics_data['train_mses']: 
-        axes[1].plot(metrics_data['train_epochs'], metrics_data['train_mses'], label='Train MSE')
-    if metrics_data['val_epochs'] and metrics_data['val_mses']:
-        axes[1].plot(metrics_data['val_epochs'], metrics_data['val_mses'], label='Val MSE', marker='o')
-    axes[1].set_title(f'{title_prefix} - MSE over Epochs')
+    # Plot Accuracy
+    if metrics_data['train_epochs'] and metrics_data['train_accuracies']: 
+        axes[1].plot(metrics_data['train_epochs'], metrics_data['train_precisions'], label='Train Accuracy')
+    if metrics_data['val_epochs'] and metrics_data['val_accuracies']:
+        axes[1].plot(metrics_data['val_epochs'], metrics_data['val_accuracies'], label='Val Accuracy', marker='o')
+    axes[1].set_title(f'{title_prefix} - Accuracy over Epochs')
     axes[1].set_xlabel('Epoch')
-    axes[1].set_ylabel('MSE')
+    axes[1].set_ylabel('Accuracy')
     axes[1].legend()
     axes[1].grid(True)
 
-    # Plot MAE
-    if metrics_data['train_epochs'] and metrics_data['train_maes']: 
-        axes[2].plot(metrics_data['train_epochs'], metrics_data['train_maes'], label='Train MAE')
-    if metrics_data['val_epochs'] and metrics_data['val_maes']:
-        axes[2].plot(metrics_data['val_epochs'], metrics_data['val_maes'], label='Val MAE', marker='o')
-    axes[2].set_title(f'{title_prefix} - MAE over Epochs')
+    # Plot Precision
+    if metrics_data['train_epochs'] and metrics_data['train_precisions']: 
+        axes[2].plot(metrics_data['train_epochs'], metrics_data['train_precisions'], label='Train Precision')
+    if metrics_data['val_epochs'] and metrics_data['val_precisions']:
+        axes[2].plot(metrics_data['val_epochs'], metrics_data['val_precisions'], label='Val Precision', marker='o')
+    axes[2].set_title(f'{title_prefix} - Precision over Epochs')
     axes[2].set_xlabel('Epoch')
-    axes[2].set_ylabel('MAE')
+    axes[2].set_ylabel('Precision')
     axes[2].legend()
     axes[2].grid(True)
 
@@ -152,17 +157,19 @@ def plot_2d_histogram(predictions_path, targets_path, title="Predicted vs. Actua
     plt.gca().set_aspect('equal', adjustable='box') # Ensures the x and y axes have the same scale
     plt.show()
 
-def plot_predictions(predictions_path, targets_path, title="Eta Pi0 Separation Results"):
+def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation Results"):
     """
     Loads saved predictions and targets and plots a 2D histogram.
     """
     try:
         predictions = np.load(predictions_path)
         targets = np.load(targets_path)
+        descriptions = np.load(descriptions_path)
     except FileNotFoundError:
         print(f"Error: Prediction or target file not found.")
         print(f"  Predictions: {predictions_path}")
         print(f"  Targets: {targets_path}")
+        print(f"  Descriptions: {descriptions_path}")
         return
 
     # Handle cases where predictions/targets might be scalar arrays (if only one sample was saved)
@@ -170,28 +177,38 @@ def plot_predictions(predictions_path, targets_path, title="Eta Pi0 Separation R
         predictions = np.array([predictions.item()])
     if targets.ndim == 0:
         targets = np.array([targets.item()])
-
-    # print(targets)
-    # print(predictions)
-
-    # Get just the second value which can represent the eta-ness
-    targets = targets[:,1]
-    predictions = predictions[:,1]
+    if descriptions.ndim == 0:
+        descriptions = np.array([descriptions.item()])
         
     # Ensure they are 1D arrays for histogramming
     predictions = predictions.flatten()
     targets = targets.flatten()
+    descriptions = descriptions.flatten()
 
-    print(f'predictions: {predictions}')
-    print(f'targets{targets}')
+    # print(f'predictions: {predictions}')
+    # print(f'targets: {targets}')
+    # print(f'descriptions: {descriptions}')
 
-    if len(predictions) != len(targets) or len(predictions) == 0:
-        print("Error: Mismatched or empty prediction/target arrays.")
+    if len(predictions) != len(targets) or len(predictions) == 0 or len(descriptions) != len(targets):
+        print("Error: Mismatched or empty prediction/target/description arrays.")
         return
 
     # Separate by target value
-    predictions_0 = predictions[targets==0]
-    predictions_1 = predictions[targets==1]
+
+    
+    labels=[]
+    separated_predictions = []
+    for particles, description in interaction_descriptions:
+        print(f'{particles}, {description}')
+        separated_predictions.append(predictions[(targets==1) & (descriptions == description)])
+        labels.append(f'1 (Eta) - {particles}')
+    separated_predictions.append(predictions[(targets==1) & (descriptions == -1)])
+    labels.append(f'1 (Eta) - other')
+    separated_predictions.append(predictions[targets==0])
+    labels.append('0 (Pi0)')
+
+    # predictions_0 = predictions[targets==0]
+    
 
     # Create bins
     bins = np.linspace(0,1,20)
@@ -203,7 +220,7 @@ def plot_predictions(predictions_path, targets_path, title="Eta Pi0 Separation R
     # hist_1 = np.histogram(predictions_1, bins)[0]
 
     fig, ax = plt.subplots(dpi=200)
-    ax.hist((predictions_0, predictions_1), bins, stacked=True, label=['0 (Pi0)', '1 (Eta)'], color=['g', 'b'])
+    ax.hist(tuple(separated_predictions), bins, stacked=True, label=labels)
 
     # ax.hist(hist_1, bins, stacked=True, label='1', color='b')
 
@@ -218,12 +235,14 @@ if __name__ == "__main__":
     # The base components of your log directory structure:
     LOG_ROOT_DIR = "eta-pi0-classification" # This should match 'root_dir' in your YAML (corrected typo)
     TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
+    # TASK_NAME = "good runs"
     EXP_NAME_PREFIX = "pointnext_eta-pi0-classification" # This is the prefix of your run_name
 
     # You need to provide the EXACT full name of your timestamped run directory.
     # Copy this name from the 'run_dir' line in your console output when you run main.py
     # Example from your output: regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-161840-EqsuYrWNpLBN7Hrst9RBSj
-    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250805-163733-cEzcWRM4M5EBfwcyMtzPrQ" # <--- UPDATE THIS EXACTLY!
+    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250807-185158-nPFqgPqTFZhK7N52d5DaCh" # <--- UPDATE THIS EXACTLY!
+
 
 
     # Construct the base_run_dir using os.path.join for platform compatibility
@@ -245,17 +264,17 @@ if __name__ == "__main__":
     metrics = parse_log_file(log_file)
 
     if metrics['train_epochs'] or metrics['val_epochs']:
-        plot_metrics(metrics, title_prefix="PointNeXt Regression Training")
+        plot_metrics(metrics, title_prefix="PointNeXt Classification Training")
     else:
         print("No metrics found in log file to plot.")
 
-    # --- Plot 2D Histogram (Predicted vs. Actual Angle) ---
     predictions_file = os.path.join(base_run_dir, "best_epoch_test_predictions.npy")
     targets_file = os.path.join(base_run_dir, "best_epoch_test_targets.npy")
+    descriptions_file = os.path.join(base_run_dir, "best_epoch_test_descriptions.npy")
 
-    if os.path.exists(predictions_file) and os.path.exists(targets_file):
+    if os.path.exists(predictions_file) and os.path.exists(targets_file) and os.path.exists(descriptions_file):
         print(f"\nPlotting final predictions from: {predictions_file} and {targets_file}")
-        plot_predictions(predictions_file, targets_file)
+        plot_predictions(predictions_file, targets_file, descriptions_file)
     else:
         print(f"\nError: Prediction/Target .npy files not found for 2D histogram.")
         print(f"Ensure training completed successfully and files were saved to: {base_run_dir}")
