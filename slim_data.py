@@ -4,10 +4,18 @@ from tqdm import tqdm
 
 from FileBuffer import FileBuffer
 
-labels = ['0 NCPi0','1 Eta']
-# file_paths = ['../eta-pi-data/merged_NCPi0.h5', '../eta-pi-data/merged_Eta.h5']
-file_paths = ['../eta-pi-data/merged_NCPi0_update.h5', '../eta-pi-data/merged_Eta.h5']
-output_file_path = '../eta-pi-data/eta-pi0-testing.h5'
+# Set the file paths and groups to place the events into
+#  labels and file_paths must be the same length (or at least labels longer than file_paths)
+#  May need to add numbers to properly order them for easy retrieval alphabetically
+
+# labels = ['0 NCPi0','1 Eta']
+# # file_paths = ['../eta-pi-data/merged_NCPi0.h5', '../eta-pi-data/merged_Eta.h5']
+# file_paths = ['../eta-pi-data/merged_NCPi0_update.h5', '../eta-pi-data/merged_Eta.h5']
+# output_file_path = '../eta-pi-data/eta-pi0-testing.h5'
+
+labels = ['Eta']
+file_paths = ['../eta-pi-data/NeutrinoML_TN_ts491857.h5']
+output_file_path = '../eta-pi-data/eta-small.h5'
 
 # Set the codes for the different primary particle ids
 #  Items earlier in the list will override those that are later
@@ -22,69 +30,63 @@ def create_sequence_info(file_path, groups=['spacepoint_table', 'hit_table', 'pa
 
     with h5py.File(file_path, 'r+') as f:
 
-        for group in groups:
+        for grp in groups:
+            group = f[grp]
 
-            
-            grp = f[group]
-
-            if 'sequence_info' in grp.keys():
+            # Check whether sequence_info has been generated already
+            if 'sequence_info' in group.keys():
                 if rewrite:
-                    print(f'sequence_info already found for {group}. Deleting...')
-                    del grp['sequence_info']
+                    print(f'sequence_info already found for {grp}. Deleting...')
+                    del group['sequence_info']
                 else:
-                    print(f'sequence_info already found for {group}. Skipping...')
+                    print(f'sequence_info already found for {grp}. Skipping...')
                     continue
-           
-            print(f'Creating sequence_info for {group} in {file_path}')
                 
-            if 'event_id' not in grp.keys():
-                print(f'event_id not found in hdf5 group {group}')
+            if 'event_id' not in group.keys():
+                print(f'event_id not found in hdf5 group {grp}')
                 continue
 
-            if 'event_id.seq_cnt' in grp.keys():
+            if 'event_id.seq_cnt' in group.keys():
+                # We rely on the seq_cnt object existing to cumulatively sum the num_points to get a starting_index
+
+                print(f'Creating sequence_info for {grp} in {file_path}')
                 print(f'Found seq_cnt, so using that to speed up calculation')
 
-                event_index = np.array(grp['event_id.seq_cnt'][:,0], dtype=np.int32)
-                num_points = np.array(grp['event_id.seq_cnt'][:,1], dtype=np.int32)
+                event_index = np.array(group['event_id.seq_cnt'][:,0], dtype=np.int32)
+                num_points = np.array(group['event_id.seq_cnt'][:,1], dtype=np.int32)
                 starting_index = np.zeros(len(num_points), dtype=np.int32)
-                starting_index[1:] = np.cumsum(num_points[:-1])
+                starting_index[1:] = np.cumsum(num_points[:-1]) # Cumulative sum is offset to let the first index be 0
 
-                sequence_info = np.stack((event_index, starting_index, num_points), dtype=np.int32).transpose()
-
-                print(sequence_info)
+                sequence_info = np.stack((event_index, starting_index, num_points), dtype=np.int32).transpose() # Add the starting_index to the matrix
+                # print(sequence_info)
                  
-                grp.create_dataset('sequence_info', data=sequence_info)
-
-                # grp['sequence_info'] = sequence_info
-
-                continue
+                group.create_dataset('sequence_info', data=sequence_info) # Creates the new dataset
 
             else:
+                # There is a way to loop through the RSE data in event_id and find when it switches values, but this is much slower.
 
                 print(f'Did not find seq_cnt. Skipping...')
 
-            # num_elem = []
-            # starting_index = [0]
+                # num_elem = []
+                # starting_index = [0]
+                # current_index = grp['event_id'][0]
+                # current_num_elem = 0
+                # i = 0
+                # for a in tqdm(grp['event_id'][:]):
+                #     # Increment the number of points 
+                #     if a[0] == current_index[0] and a[1] == current_index[1] and a[2] == current_index[2]:
+                #         current_num_points += 1
+                #     else:
+                #         num_elem.append(current_num_points)
+                #         starting_index.append(i)
+                #         current_num_points = 1
+                #         current_index = a
+                #     i+=1
+                # num_elem.append(current_num_points) # Add the final event as well even if there is no new event info to trigger it
+                # event_index = range(len(num_elem)) # There is no event_index from seq_cnt, so we create another index
 
-            # current_index = grp['event_id'][0]
-            # current_num_elem = 0
-            # i = 0
-            # for a in tqdm(grp['event_id'][:]):
-                
-            #     # Increment the number of points 
-            #     if a[0] == current_index[0] and a[1] == current_index[1] and a[2] == current_index[2]:
-            #         current_num_points += 1
-            #     else:
-            #         num_elem.append(current_num_points)
-            #         starting_index.append(i)
-
-            #         current_num_points = 1
-            #         current_index = a
-
-            #     i+=1
-            # num_elem.append(current_num_points) # Add the final event as well even if there is no new event info to trigger it
-            # event_index = range(len(num_elem)) # There is no event_index from seq_cnt, so we create another index
-
+# This is where the main code starts 
+# Looping through each file which will remain in separate groups named after labels
 for file_name, label in zip(file_paths, labels):
 
     create_sequence_info(file_name, rewrite=False)
@@ -107,14 +109,15 @@ for file_name, label in zip(file_paths, labels):
         sequence_info_sp = sp['sequence_info'][:]
         sequence_info_h = h['sequence_info'][:]
         sequence_info_pt = pt['sequence_info'][:]
-        sp_positions = sp['position'][:]
-        hit_id_sp = sp['hit_id'][:,2]
-        hit_plane = h['local_plane'][:]
-        hit_integral = h['integral'][:]
+
+        sp_positions = sp['position'][:] # 3D points
+        hit_id_sp = sp['hit_id'][:,2] # The Y-plane hit id associated with each space point
+        hit_plane = h['local_plane'][:] # The plane associated with each hit
+        hit_integral = h['integral'][:] # The current integral for each hit
         
-        rse = sp['event_id'][:]
-        parent_id = pt['parent_id'][:]
-        g4_pdg = pt['g4_pdg'][:]
+        rse = sp['event_id'][:] # The run, subrun, event data for each space point
+        parent_id = pt['parent_id'][:] # The parent id (0=primary) for all particles in each event
+        g4_pdg = pt['g4_pdg'][:] # The particle code for each particle (22=photon)
 
         # Create buffer objects if these arrays are taking up too much space
         # sp_positions_buffer = FileBuffer(sp['position'])
@@ -129,6 +132,7 @@ for file_name, label in zip(file_paths, labels):
         point_info_new = [] # Contains x, y, z, integral
         point_info_centered_new = [] # Contains centered_x, centered_y, centered_z, integral
 
+        # Cap the number of events to limit RAM usage 
         event_cap = min(len(sequence_info_sp), 20000)
         print(f'Connecting spacepoint and hit data ({event_cap} events)')
 
@@ -142,6 +146,20 @@ for file_name, label in zip(file_paths, labels):
             hit_ids = hit_id_sp[starting_index:starting_index+num_points]
             run, subrun, event = rse[starting_index]
             # run, subrun, event = rse_buffer[starting_index]
+
+            # Find the matching event index in particle_table
+            #  Assumes that sequence_info_pt[:,0] has only unique values
+            #  Assumes that sequence_info_pt[:,0] is a sorted subset of the sorted sequence_info_sp[:,0]
+            found_pt_index = False
+            while pt_index < len(sequence_info_pt) and not found_pt_index:
+                if sequence_info_pt[pt_index, 0] == event_index:
+                    found_pt_index = True
+                else:
+                    pt_index+=1
+            if not found_pt_index:
+                raise IndexError(f'Reached the end of particle_table/event_id without finding desired index from spacepoint_table/event_id.\nAssumption of unique, sorted values may be wrong.')
+
+            event_index_pt, starting_index_pt, num_points_pt = sequence_info_pt[pt_index]
 
             # Find the matching event index in hit_table
             #  Assumes that sequence_info_h[:,0] has only unique values
@@ -157,24 +175,41 @@ for file_name, label in zip(file_paths, labels):
 
             event_index_h, starting_index_h, num_points_h = sequence_info_h[h_index]
 
-            # print(np.all(hit_ids_h.transpose() == np.array(range(0,num_points_h)))) # Shows that the hit_ids are in order for each
+            # Get the primary particles associated with each event to add descriptive code
+            primary_particles = g4_pdg[np.where(parent_id[starting_index_pt: starting_index_pt+num_points_pt] == 0)[0]]
+            # primary_particles = g4_pdg_buffer[np.where(parent_id_buffer[np.array(list(range(starting_index_pt, starting_index_pt+num_points_pt)))] == 0)[0]]
+            particle_description = -1 # Default description
+            for particles, description in interaction_descriptions:
+                is_matching = True
+                remaining_particles = particles.copy()
+                for particle in primary_particles:
+                    if particle[0] in remaining_particles:
+                        remaining_particles.remove(particle[0])
+                if len(remaining_particles) == 0:
+                    particle_description = description
+                    break
+            # if particle_description == -1:
+            #     print(primary_particles.squeeze(-1))
+
+            # Filter so only 2 photon events make it through
+            if particle_description != 0:
+                continue
 
             # The charge integral on y-plane associated with each hit from the current event
             #  Assumes the hit_ids in the hit_table are in order starting at zero
             integrals = hit_integral[starting_index_h+hit_ids][:,0] 
+            planes = hit_plane[starting_index_h+hit_ids][:,0]
             # integrals = hit_integral_buffer[starting_index_h+hit_ids][:,0] 
             # planes = hit_plane_buffer[starting_index_h+hit_ids][:,0]
-            planes = hit_plane[starting_index_h+hit_ids][:,0]
-
-            included_hit_ids = []
 
             # Get the first space point for each hit_id_y and add it to the new list
+            included_hit_ids = []
             for k in range(len(hit_ids)):
                 hit_id = hit_ids[k]
                 if hit_id == -1:
                     continue
 
-                if planes[k] != 2:
+                if planes[k] != 2: # Confirmation that all hits found are from plane Y
                     print(event_index)
                     print(hit_ids)
                     print(planes)
@@ -188,35 +223,6 @@ for file_name, label in zip(file_paths, labels):
                     # x, y, z = sp_positions_buffer[starting_index+k]
                     integral = integrals[k]
                     point_info_new.append([x,y,z,integral])
-
-            # Get the primary particles to determine description
-
-            found_pt_index = False
-            while pt_index < len(sequence_info_pt) and not found_pt_index:
-                if sequence_info_pt[pt_index, 0] == event_index:
-                    found_pt_index = True
-                else:
-                    pt_index+=1
-            if not found_pt_index:
-                raise IndexError(f'Reached the end of particle_table/event_id without finding desired index from spacepoint_table/event_id.\nAssumption of unique, sorted values may be wrong.')
-
-            event_index_pt, starting_index_pt, num_points_pt = sequence_info_pt[pt_index]
-
-            # primary_particles = g4_pdg_buffer[np.where(parent_id_buffer[np.array(list(range(starting_index_pt, starting_index_pt+num_points_pt)))] == 0)[0]]
-            primary_particles = g4_pdg[np.where(parent_id[starting_index_pt: starting_index_pt+num_points_pt] == 0)[0]]
-
-            particle_description = -1
-            for particles, description in interaction_descriptions:
-                is_matching = True
-                remaining_particles = particles.copy()
-                for particle in primary_particles:
-                    if particle[0] in remaining_particles:
-                        remaining_particles.remove(particle[0])
-                if len(remaining_particles) == 0:
-                    particle_description = description
-                    break
-            # if particle_description == -1:
-            #     print(primary_particles.squeeze(-1))
 
             # Update the starting_index and num_points with the reduced size
             if len(sequence_info_new) > 0:
@@ -238,16 +244,13 @@ for file_name, label in zip(file_paths, labels):
         sequence_info_new = np.array(sequence_info_new)
         point_info_new = np.array(point_info_new)
         point_info_centered_new = np.array(point_info_centered_new)
+        # print(sequence_info_new)
+        # print(point_info_new)
+        # print(point_info_centered_new)
 
-        print(sequence_info_new)
-        print(point_info_new)
-        print(point_info_centered_new)
-                # if hit_plane[starting_index_h+hit_index] != 2:
-                # print(hit_plane[starting_index_h+hit_index])
-
-    print(f'Writing {label} to {output_file_path}')
-
+    # Add the new lists to the new file
     with h5py.File(output_file_path, 'a') as f:
+        print(f'Writing {label} to {output_file_path}')
 
         if label in f.keys():
             del f[label]
