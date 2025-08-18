@@ -121,7 +121,7 @@ class EventPointCloudDataset(Dataset):
 		with pd.HDFStore(self.h5_file_path, 'r') as hdf5_store:
 
 			# hdf5_select_start = time.time()	
-			_, starting_index, num_points, description = self.preloaded_sequence_info[indx]
+			event_index, starting_index, num_points, description = self.preloaded_sequence_info[indx]
 			pc_data = self.preloaded_pc_data[starting_index:starting_index+num_points]
 			pc_target = self.preloaded_pc_target[indx]
 			# hdf5_select_end =  time.time()
@@ -163,7 +163,7 @@ class EventPointCloudDataset(Dataset):
 				target_tensor = data_dict_for_transform['y']
 
 			# Return as a dict for inputs, and the target
-			data_dict = {'pos': pos_tensor, 'x': feat_tensor, 'description':description} 
+			data_dict = {'pos': pos_tensor, 'x': feat_tensor, 'description':torch.Tensor([event_index, description])} 
 			
 			return data_dict, target_tensor
 

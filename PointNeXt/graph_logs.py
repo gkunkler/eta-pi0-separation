@@ -8,11 +8,23 @@ import torch
 from coloredlines import colored_line
 
 # Should be the same as in slim_data.py
-interaction_descriptions = [([22, 22], 0),
-                            ([111, 211, -211], 1),
-                            ([111, 111, 111], 2),
-                            ([111, 111], 3),
-                            ([111], 4)]
+interaction_descriptions = [
+                            ([22, 22, 13, 2212],0),
+                            ([22, 22, 13, 2112],1),
+                            ([22, 22, 13],2),
+                            ([22, 22, 13],3),
+                            ([22, 22], 4),
+                            ([111, 211, -211], 5),
+                            ([111, 111, 111], 6),
+                            ([111, 111], 7),
+                            ([111, 211], 8),
+                            ([111, -211], 9),
+                            ([111, 2112], 10),
+                            ([111, 2212], 11),
+                            ([111], 12),
+                            ([13, 22], 13),
+                            ([13], 14),
+                            ([211], 15)]
 
 def parse_log_file(log_file_path):
     """
@@ -160,7 +172,7 @@ def plot_2d_histogram(predictions_path, targets_path, title="Predicted vs. Actua
     plt.gca().set_aspect('equal', adjustable='box') # Ensures the x and y axes have the same scale
     plt.show()
 
-def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation ROC"):
+def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation"):
 
     try:
         predictions = np.load(predictions_path)
@@ -195,7 +207,9 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
     else:
         descriptions = np.ones(len(targets))*-1
 
-    descriptions = descriptions.flatten()
+    print(descriptions)
+    indexes = descriptions[:,0].flatten()
+    descriptions = descriptions[:,1].flatten()
 
     # print(f'predictions: {predictions}')
     # print(f'targets: {targets}')
@@ -205,22 +219,123 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
         print("Error: Mismatched or empty prediction/target/description arrays.")
         return
 
-    # Separate by target value
-
-    
+    # Separate by target value and description
     labels=[]
     separated_predictions = []
-    for particles, description in interaction_descriptions:
-        print(f'{particles}, {description}')
-        separated_predictions.append(predictions[(targets==1) & (descriptions == description)])
-        labels.append(f'1 (Eta) - {particles}')
-    separated_predictions.append(predictions[(targets==1) & (descriptions == -1)])
-    labels.append(f'1 (Eta) - other')
-    separated_predictions.append(predictions[targets==0])
-    labels.append('0 (Pi0)')
+    for particles, description in interaction_descriptions: # Loop for eta
+        if ((targets==1) & (descriptions == description)).any():
+            separated_predictions.append(predictions[(targets==1) & (descriptions == description)])
+            labels.append(f'1 (Eta) - {particles}')
+            
+    num_eta = len(labels)
+    # separated_predictions.append(predictions[(targets==1) & (descriptions == -1)])
+    # labels.append(f'1 (Eta) - other')
+    for particles, description in interaction_descriptions: # Loop for pi0
+        if ((targets==0) & (descriptions == description)).any():
+            separated_predictions.append(predictions[(targets==0) & (descriptions == description)])
+            labels.append(f'0 (Pi0) - {particles}')
+            
+    
+    # separated_predictions.append(predictions[(targets==0) & (descriptions == -1)])
+    # labels.append('0 (Pi0) - other')
+    num_pi0 = len(labels)-num_eta
 
     # predictions_0 = predictions[targets==0]
+
+    total = len(predictions)
+    eta_total = len(indexes[targets==1])
+    pi0_total = len(indexes[targets==0])
+
+    print(f'1 (Eta) <0.5 ({len(indexes[(predictions < 0.5) & (targets==1)])/eta_total}): {indexes[(predictions < 0.5) & (targets==1)][:10]}')
+    print(f'1 (Eta) >0.5 ({len(indexes[(predictions > 0.5) & (targets==1)])/eta_total}): {indexes[(predictions > 0.5) & (targets==1)][:10]}')
+    print(f'0 (Pi0) <0.5 ({len(indexes[(predictions < 0.5) & (targets==0)])/pi0_total}): {indexes[(predictions < 0.5) & (targets==0)][:10]}')
+    print(f'0 (Pi0) >0.5 ({len(indexes[(predictions > 0.5) & (targets==0)])/pi0_total}): {indexes[(predictions > 0.5) & (targets==0)][:10]}')
     
+    # Get the colors so that there are two different color schemes for eta and pi0
+    blues = plt.get_cmap('Blues')
+    reds = plt.get_cmap('Reds')
+
+    colors = []
+
+    for i in range(num_eta):
+        colors.append(blues(0.3+0.7*i/num_eta))
+    for i in range(num_pi0):
+        colors.append(reds(0.3+0.7*i/num_pi0))
+
+    # Create bins
+    bins = np.linspace(0,1,30)
+    bin_centers = (bins[:-1]+bins[1:])/2
+    bin_width = np.diff(bins)[0]
+
+    # Create the histograms
+    # hist_0 = np.histogram(predictions_0, bins)[0]
+    # hist_1 = np.histogram(predictions_1, bins)[0]
+
+    fig, ax = plt.subplots(dpi=200)
+    ax.hist(tuple(separated_predictions), bins, stacked=True, label=labels, color=colors)
+
+    # ax.hist(hist_1, bins, stacked=True, label='1', color='b')
+
+    plt.title(title)
+    plt.xlabel('Model Prediction')
+    plt.ylabel('Counts')
+    plt.legend(reverse=True)
+    plt.show()
+
+def plot_predictions_simple(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation"):
+
+    try:
+        predictions = np.load(predictions_path)
+        targets = np.load(targets_path)
+    except FileNotFoundError:
+        print(f"Error: Prediction or target file not found.")
+        print(f"  Predictions: {predictions_path}")
+        print(f"  Targets: {targets_path}")
+        
+        return
+    
+    # Handle cases where predictions/targets might be scalar arrays (if only one sample was saved)
+    if predictions.ndim == 0: 
+        predictions = np.array([predictions.item()])
+    if targets.ndim == 0:
+        targets = np.array([targets.item()])
+        
+    # Ensure they are 1D arrays for histogramming
+    predictions = predictions.flatten()
+    targets = targets.flatten()
+
+    # Get the descriptions if it exists
+    if os.path.exists(descriptions_file):
+        try:
+            descriptions = np.load(descriptions_path)
+            
+        except:
+            print(f"Descriptions not found: {descriptions_path}")
+            descriptions = np.ones(len(targets))*-1
+        if descriptions.ndim == 0:
+            descriptions = np.array([descriptions.item()])
+    else:
+        descriptions = np.ones(len(targets))*-1
+
+    print(descriptions)
+    indexes = descriptions[:,0].flatten()
+    descriptions = descriptions[:,1].flatten()
+
+    # print(f'predictions: {predictions}')
+    # print(f'targets: {targets}')
+    # print(f'descriptions: {descriptions}')
+
+    if len(predictions) != len(targets) or len(predictions) == 0 or len(descriptions) != len(targets):
+        print("Error: Mismatched or empty prediction/target/description arrays.")
+        return
+
+    # Separate by target value and description
+    labels=[]
+    separated_predictions = []
+    separated_predictions.append(predictions[targets==1])
+    labels.append(f'1 (Eta)')
+    separated_predictions.append(predictions[targets==0])
+    labels.append(f'0 (Pi0)')
 
     # Create bins
     bins = np.linspace(0,1,20)
@@ -232,14 +347,14 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
     # hist_1 = np.histogram(predictions_1, bins)[0]
 
     fig, ax = plt.subplots(dpi=200)
-    ax.hist(tuple(separated_predictions), bins, stacked=True, label=labels)
+    ax.hist(tuple(separated_predictions), bins, stacked=True, label=labels, color=['b','g'] )
 
     # ax.hist(hist_1, bins, stacked=True, label='1', color='b')
 
     plt.title(title)
     plt.xlabel('Model Prediction')
     plt.ylabel('Counts')
-    plt.legend()
+    plt.legend(reverse=True)
     plt.show()
 
 def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results"):
@@ -294,14 +409,15 @@ if __name__ == "__main__":
     # --- IMPORTANT: Configure this ---
     # The base components of your log directory structure:
     LOG_ROOT_DIR = "eta-pi0-classification" # This should match 'root_dir' in your YAML (corrected typo)
-    TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
-    # TASK_NAME = "good runs"
+    # TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
+    TASK_NAME = "good runs"
     EXP_NAME_PREFIX = "pointnext_eta-pi0-classification" # This is the prefix of your run_name
 
     # You need to provide the EXACT full name of your timestamped run directory.
     # Copy this name from the 'run_dir' line in your console output when you run main.py
     # Example from your output: regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-161840-EqsuYrWNpLBN7Hrst9RBSj
-    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250808-111411-hx9mKTB8fu6ndjxc646bK7" # <--- UPDATE THIS EXACTLY!
+    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250817-173716-GwyPr6dJbhKWU4DNde3p3W" # <--- UPDATE THIS EXACTLY!
+
 
 
 
@@ -335,6 +451,7 @@ if __name__ == "__main__":
     if os.path.exists(predictions_file) and os.path.exists(targets_file):
         print(f"\nPlotting final predictions from: {predictions_file} and {targets_file}")
         plot_predictions(predictions_file, targets_file, descriptions_file)
+        plot_predictions_simple(predictions_file, targets_file, descriptions_file)
         plot_roc(predictions_file, targets_file)
     else:
         print(f"\nError: Prediction/Target .npy files not found for 2D histogram.")

@@ -8,22 +8,35 @@ from FileBuffer import FileBuffer
 #  labels and file_paths must be the same length (or at least labels longer than file_paths)
 #  May need to add numbers to properly order them for easy retrieval alphabetically
 
-# labels = ['0 NCPi0','1 Eta']
-# # file_paths = ['../eta-pi-data/merged_NCPi0.h5', '../eta-pi-data/merged_Eta.h5']
-# file_paths = ['../eta-pi-data/merged_NCPi0_update.h5', '../eta-pi-data/merged_Eta.h5']
-# output_file_path = '../eta-pi-data/eta-pi0-testing.h5'
+labels = ['0 NCPi0','1 Eta']
+# file_paths = ['../eta-pi-data/merged_NCPi0.h5', '../eta-pi-data/merged_Eta.h5']
+file_paths = ['../eta-pi-data/merged_NCPi0_update.h5', '../eta-pi-data/merged_Eta_update_sequenced.h5']
+output_file_path = '../eta-pi-data/eta-pi0-update.h5'
+description_filters = [[8,9,10,11,12], [0,1,2,3,4]]
 
-labels = ['Eta']
-file_paths = ['../eta-pi-data/NeutrinoML_TN_ts491857.h5']
-output_file_path = '../eta-pi-data/eta-small.h5'
+# labels = ['Eta']
+# file_paths = ['../eta-pi-data/NeutrinoML_TN_ts491857.h5']
+# output_file_path = '../eta-pi-data/eta-small.h5'
 
 # Set the codes for the different primary particle ids
 #  Items earlier in the list will override those that are later
-interaction_descriptions = [([22, 22], 0),
-                            ([111, 211, -211], 1),
-                            ([111, 111, 111], 2),
-                            ([111, 111], 3),
-                            ([111], 4)]
+interaction_descriptions = [
+                            ([22, 22, 13, 2212],0),
+                            ([22, 22, 13, 2112],1),
+                            ([22, 22, 13],2),
+                            ([22, 22, 13],3),
+                            ([22, 22], 4),
+                            ([111, 211, -211], 5),
+                            ([111, 111, 111], 6),
+                            ([111, 111], 7),
+                            ([111, 211], 8),
+                            ([111, -211], 9),
+                            ([111, 2112], 10),
+                            ([111, 2212], 11),
+                            ([111], 12),
+                            ([13, 22], 13),
+                            ([13], 14),
+                            ([211], 15)]
 
 # Take the event_id info and adds an adjacent dataset that has the event index, starting index, and number of elements for the supplied groups
 def create_sequence_info(file_path, groups=['spacepoint_table', 'hit_table', 'particle_table'], rewrite=False):
@@ -75,19 +88,19 @@ def create_sequence_info(file_path, groups=['spacepoint_table', 'hit_table', 'pa
                 # for a in tqdm(grp['event_id'][:]):
                 #     # Increment the number of points 
                 #     if a[0] == current_index[0] and a[1] == current_index[1] and a[2] == current_index[2]:
-                #         current_num_points += 1
+                #         current_num_elem += 1
                 #     else:
-                #         num_elem.append(current_num_points)
+                #         num_elem.append(current_num_elem)
                 #         starting_index.append(i)
-                #         current_num_points = 1
+                #         current_num_elem = 1
                 #         current_index = a
                 #     i+=1
-                # num_elem.append(current_num_points) # Add the final event as well even if there is no new event info to trigger it
+                # num_elem.append(current_num_elem) # Add the final event as well even if there is no new event info to trigger it
                 # event_index = range(len(num_elem)) # There is no event_index from seq_cnt, so we create another index
 
 # This is where the main code starts 
 # Looping through each file which will remain in separate groups named after labels
-for file_name, label in zip(file_paths, labels):
+for file_name, label, description_filter in zip(file_paths, labels, description_filters):
 
     create_sequence_info(file_name, rewrite=False)
     # Now I can assume that there is a dataset called sequence_info with the information I need to easily interpret hit_id information
@@ -136,6 +149,8 @@ for file_name, label in zip(file_paths, labels):
         event_cap = min(len(sequence_info_sp), 20000)
         print(f'Connecting spacepoint and hit data ({event_cap} events)')
 
+        descriptions_found = np.zeros(len(interaction_descriptions) + 1)
+        skipped = 0
 
         h_index = 0 # Index to start looking for event_index in sequence_index_h
         pt_index = 0 # Index to start looking for event_index in sequence_index_pt
@@ -176,7 +191,7 @@ for file_name, label in zip(file_paths, labels):
             event_index_h, starting_index_h, num_points_h = sequence_info_h[h_index]
 
             # Get the primary particles associated with each event to add descriptive code
-            primary_particles = g4_pdg[np.where(parent_id[starting_index_pt: starting_index_pt+num_points_pt] == 0)[0]]
+            primary_particles = g4_pdg[starting_index_pt + np.where(parent_id[starting_index_pt: starting_index_pt+num_points_pt] == 0)[0]]
             # primary_particles = g4_pdg_buffer[np.where(parent_id_buffer[np.array(list(range(starting_index_pt, starting_index_pt+num_points_pt)))] == 0)[0]]
             particle_description = -1 # Default description
             for particles, description in interaction_descriptions:
@@ -188,12 +203,16 @@ for file_name, label in zip(file_paths, labels):
                 if len(remaining_particles) == 0:
                     particle_description = description
                     break
-            # if particle_description == -1:
+            # if particle_description in [-1]:
             #     print(primary_particles.squeeze(-1))
 
             # Filter so only 2 photon events make it through
-            if particle_description != 0:
+            descriptions_found[particle_description] += 1 
+            if particle_description not in description_filter:
+                skipped += 1
                 continue
+            # else:
+            #     print(primary_particles.squeeze(-1))
 
             # The charge integral on y-plane associated with each hit from the current event
             #  Assumes the hit_ids in the hit_table are in order starting at zero
@@ -248,9 +267,12 @@ for file_name, label in zip(file_paths, labels):
         # print(point_info_new)
         # print(point_info_centered_new)
 
+        print(f'Descriptions: {descriptions_found}')
+        print(f'Percentage Skipped: {skipped/event_cap*100}%')
+
     # Add the new lists to the new file
     with h5py.File(output_file_path, 'a') as f:
-        print(f'Writing {label} to {output_file_path}')
+        print(f'Writing {label} to {output_file_path} ({len(sequence_info_new)} events)')
 
         if label in f.keys():
             del f[label]

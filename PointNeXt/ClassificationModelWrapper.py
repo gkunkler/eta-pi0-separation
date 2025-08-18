@@ -26,8 +26,8 @@ class ClassificationModelWrapper(nn.Module):
 
         # Get the final feature tensor from the encoder's output
         final_features = f_list[-1]
-        # final_feature = torch.max(final_features, dim=1)[0]
-        final_feature = torch.mean(final_features, dim=1)
+        final_feature = torch.max(final_features, dim=1)[0]
+        # final_feature = torch.mean(final_features, dim=1)
 
         # print(f'final features: {np.shape(final_features)}')
         # print(f'final feature: {np.shape(final_feature)}')

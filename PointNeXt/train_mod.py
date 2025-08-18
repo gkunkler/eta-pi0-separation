@@ -30,8 +30,8 @@ def print_classification_results(loss, accuracy, precision, epoch_val, cfg):
 
 def create_metrics(rank):
     loss_meter = AverageMeter()
-    accuracy_meter = Accuracy(task='binary', num_classes=2).to(rank)
-    precision_meter = Precision(task='binary', num_classes=2).to(rank)
+    accuracy_meter = Accuracy(task='binary', num_classes=1).to(rank)
+    precision_meter = Precision(task='binary', num_classes=1).to(rank)
 
     return loss_meter, accuracy_meter, precision_meter
 
@@ -81,8 +81,8 @@ def main(gpu, cfg, profile=False):
     logging.info(model)
     logging.info('Number of params: %.4f M' % (model_size / 1e6))
     
-    # criterion = nn.BCELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
-    criterion = nn.BCEWithLogitsLoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
+    criterion = nn.BCELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
+    # criterion = nn.BCEWithLogitsLoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
     # criterion = nn.MSELoss(reduction=cfg.loss.get('reduction', 'mean')).cuda()
 
     if cfg.sync_bn:
@@ -471,6 +471,7 @@ def validate_and_save_predictions(model, data_loader, criterion, cfg, split_name
     predictions_array = np.concatenate(all_predictions, axis=0)
     targets_array = np.concatenate(all_targets, axis=0)
     descriptions_array = np.concatenate(all_descriptions, axis=0)
+    
 
     # Save to disk in the run's log directory
     pred_path = os.path.join(cfg.run_dir, f"{split_name}_predictions.npy")
