@@ -133,9 +133,13 @@ class EventPointCloudDataset(Dataset):
 			N_original = points_xyz.shape[0]
 			if N_original > self.num_points:
 				#Randomly sample points
-				sample_idx = np.random.choice(N_original, self.num_points, replace=False)
-				points_xyz = points_xyz[sample_idx]
-				features = features[sample_idx]
+				sorted_index = features[:,3].argsort()[::-1]
+				points_xyz = points_xyz[sorted_index[:self.num_points]]
+				features = features[sorted_index[:self.num_points]]
+
+				# sample_idx = np.random.choice(N_original, self.num_points, replace=False)
+				# points_xyz = points_xyz[sample_idx]
+				# features = features[sample_idx]
 			elif N_original < self.num_points:
 				#Padding zeros for missing points
 				padded_points_xyz = np.zeros((self.num_points, points_xyz.shape[1]), dtype=points_xyz.dtype)
@@ -173,7 +177,7 @@ class EventPointCloudDataset(Dataset):
 			print("HDFStore closed in __del__")
 
 if __name__ == "__main__":
-	HDF5_FILE_PATH = "../../eta-pi-data/eta-pi0.h5"
+	HDF5_FILE_PATH = "../../eta-pi-data/eta-pi0-update.h5"
 	dataset = EventPointCloudDataset(HDF5_FILE_PATH, num_points=512, max_samples_per_category=10)
 	data_dict, target = dataset[15]
 	print(f"POS shape: {data_dict['pos'].shape}, X shape: {data_dict['x'].shape}, Target shape: {target.shape}")

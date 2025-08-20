@@ -37,12 +37,13 @@ train:
 dataset:
   common:
     NAME: 'create_event_dataset'
-    num_points: 1028 # Be careful when changing
+    num_points: 512 # Also need to change head input channels
     h5_file_path: '../../eta-pi-data/eta-pi0-update.h5'
     max_samples: 15000
     train_split: 0.7
     val_split: 0.15
     test_split: 0.15
+  # pretrained_path: 'eta-pi0-classification/good_runs/classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250817-173716-GwyPr6dJbhKWU4DNde3p3W/checkpoint/classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250817-173716-GwyPr6dJbhKWU4DNde3p3W_ckpt_best.pth'
   train:
     transforms: []
   val:
@@ -84,22 +85,13 @@ model:
   head_args: 
     NAME: 'ClsHead' # From openpoints/models/classification/cls_base.py
     num_classes: 1
-    in_channels: 4
+    in_channels: 2 # 2 for 512 points and 4 for 1024 points
     act_args:
       act: 'sigmoid'
-    mlps: [256, 128, 64] # [256, 128]
+    mlps: [256, 128] # [256, 128]
     # dropout: 0
     # global_feat: 'max'
     # point_dim: 1
-    
-    # NAME: 'RegressionHead'
-    # encoder_out_channels: 512 
-    # out_dim: 1 #single regression output (opang)
-    # mlp_channels: [256, 128] # MLP layers within the head
-    # norm_args:
-    #   norm: 'bn'
-    # act_args:
-    #   act: 'sigmoid'
 
 
 # Optimizer config

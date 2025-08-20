@@ -172,7 +172,7 @@ def plot_2d_histogram(predictions_path, targets_path, title="Predicted vs. Actua
     plt.gca().set_aspect('equal', adjustable='box') # Ensures the x and y axes have the same scale
     plt.show()
 
-def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation"):
+def plot_predictions(predictions_path, targets_path, descriptions_path, title="Eta Pi0 Separation", threshold = 0.5):
 
     try:
         predictions = np.load(predictions_path)
@@ -246,10 +246,24 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
     eta_total = len(indexes[targets==1])
     pi0_total = len(indexes[targets==0])
 
-    print(f'1 (Eta) <0.5 ({len(indexes[(predictions < 0.5) & (targets==1)])/eta_total}): {indexes[(predictions < 0.5) & (targets==1)][:10]}')
-    print(f'1 (Eta) >0.5 ({len(indexes[(predictions > 0.5) & (targets==1)])/eta_total}): {indexes[(predictions > 0.5) & (targets==1)][:10]}')
-    print(f'0 (Pi0) <0.5 ({len(indexes[(predictions < 0.5) & (targets==0)])/pi0_total}): {indexes[(predictions < 0.5) & (targets==0)][:10]}')
-    print(f'0 (Pi0) >0.5 ({len(indexes[(predictions > 0.5) & (targets==0)])/pi0_total}): {indexes[(predictions > 0.5) & (targets==0)][:10]}')
+    eta_predicted_total = len(indexes[predictions > threshold])
+    pi0_predicted_total = len(indexes[predictions <= threshold])
+
+    print(f'(proportion of truth) (proportion of prediction)')
+    print(f'1 (Eta) <= 0.5 : {indexes[(predictions <= threshold) & (targets==1)][:10]}')
+    print(f'1 (Eta) >  0.5 : {indexes[(predictions > threshold) & (targets==1)][:10]}')
+    print(f'0 (Pi0) <= 0.5 : {indexes[(predictions <= threshold) & (targets==0)][:10]}')
+    print(f'0 (Pi0) >  0.5 : {indexes[(predictions > threshold) & (targets==0)][:10]}')
+
+    print(f'Confusion Matrix: normalized by truth')
+    print(f'  predicted pi0 | predicted eta')
+    print(f'true pi0: {len(indexes[(predictions <= threshold) & (targets==0)])/pi0_total:.3f} | {len(indexes[(predictions > threshold) & (targets==0)])/pi0_total:.3f}')
+    print(f'true eta: {len(indexes[(predictions <= threshold) & (targets==1)])/eta_total:.3f} | {len(indexes[(predictions > threshold) & (targets==1)])/eta_total:.3f}')
+
+    print(f'Confusion Matrix: normalized by prediction')
+    print(f'  predicted pi0 | predicted eta')
+    print(f'true pi0: {len(indexes[(predictions <= threshold) & (targets==0)])/pi0_predicted_total:.3f} | {len(indexes[(predictions > threshold) & (targets==0)])/eta_predicted_total:.3f}')
+    print(f'true eta: {len(indexes[(predictions <= threshold) & (targets==1)])/pi0_predicted_total:.3f} | {len(indexes[(predictions > threshold) & (targets==1)])/eta_predicted_total:.3f}')
     
     # Get the colors so that there are two different color schemes for eta and pi0
     blues = plt.get_cmap('Blues')
@@ -263,7 +277,7 @@ def plot_predictions(predictions_path, targets_path, descriptions_path, title="E
         colors.append(reds(0.3+0.7*i/num_pi0))
 
     # Create bins
-    bins = np.linspace(0,1,30)
+    bins = np.linspace(0,1,25)
     bin_centers = (bins[:-1]+bins[1:])/2
     bin_width = np.diff(bins)[0]
 
@@ -338,7 +352,7 @@ def plot_predictions_simple(predictions_path, targets_path, descriptions_path, t
     labels.append(f'0 (Pi0)')
 
     # Create bins
-    bins = np.linspace(0,1,20)
+    bins = np.linspace(0,1,25)
     bin_centers = (bins[:-1]+bins[1:])/2
     bin_width = np.diff(bins)[0]
 
@@ -357,7 +371,7 @@ def plot_predictions_simple(predictions_path, targets_path, descriptions_path, t
     plt.legend(reverse=True)
     plt.show()
 
-def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results"):
+def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results", threshold = 0.5):
 
     try:
         predictions = np.load(predictions_path)
@@ -386,6 +400,11 @@ def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results")
     auroc = AUROC(task="binary")
     auc = auroc(torch.tensor(predictions, dtype=torch.float), torch.tensor(targets, dtype=torch.int)).item()
 
+    # Plot the location of the threshold
+    threshold_index = np.where(thresholds<=threshold)[0][0]
+    ax.axhline(tpr[threshold_index], linestyle=':', color='k', linewidth=1)
+    ax.axvline(fpr[threshold_index], linestyle=':', color='k', linewidth=1)
+
     # ax.plot(fpr, tpr)
     line = colored_line(fpr, tpr, thresholds, ax, linewidth=3, cmap="plasma")
     cb = fig.colorbar(line, )
@@ -398,6 +417,8 @@ def plot_roc(predictions_path, targets_path, title="Eta Pi0 Separation Results")
 
     ax.plot([0,1], [0,1], linestyle='--', c='k', linewidth=1)
 
+    cb.ax.axhline(threshold, linestyle=':', c='k', linewidth=1)
+
     ax.set_xlim(0,1)
     ax.set_ylim(0,1)
 
@@ -409,14 +430,14 @@ if __name__ == "__main__":
     # --- IMPORTANT: Configure this ---
     # The base components of your log directory structure:
     LOG_ROOT_DIR = "eta-pi0-classification" # This should match 'root_dir' in your YAML (corrected typo)
-    # TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
-    TASK_NAME = "good runs"
+    TASK_NAME = "classification_events" # This should match 'task_name' in your YAML
+    # TASK_NAME = "good_runs"
     EXP_NAME_PREFIX = "pointnext_eta-pi0-classification" # This is the prefix of your run_name
 
     # You need to provide the EXACT full name of your timestamped run directory.
     # Copy this name from the 'run_dir' line in your console output when you run main.py
     # Example from your output: regression_events-train-pointnext_opang_regression-ngpus1-seed0-20250728-161840-EqsuYrWNpLBN7Hrst9RBSj
-    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250817-173716-GwyPr6dJbhKWU4DNde3p3W" # <--- UPDATE THIS EXACTLY!
+    ACTUAL_RUN_TIMESTAMPED_FOLDER = "classification_events-train-pointnext_eta-pi0-classification-ngpus1-seed0-20250819-154815-STEfDHwaVpFwvSaNqMR3Aw" # <--- UPDATE THIS EXACTLY!
 
 
 

@@ -1,4 +1,4 @@
-import os, logging, csv, numpy as np
+import os, logging, csv, sys, numpy as np
 from tqdm import tqdm
 import torch, torch.nn as nn
 from torch import distributed as dist
@@ -71,6 +71,24 @@ def main(gpu, cfg, profile=False):
 
 
     model = build_model_from_cfg(cfg.model).to(cfg.rank)
+
+    #added pretrained data
+    pretrained_path = cfg.common.get('pretrained_path', None)
+    if pretrained_path:
+        logging.info(f'Loading pre-trained model from: {pretrained_path}')
+        try:
+            # Load the state dictionary
+            checkpoint = torch.load(pretrained_path, map_location=f'cuda:{cfg.rank}')
+            pretrained_state_dict = checkpoint.get('model', checkpoint)
+            new_state_dict = {k.replace('module.', ''): v for k, v in pretrained_state_dict.items()}
+            # Load the weights, ignoring non-matching keys (regression head)
+            model.load_state_dict(new_state_dict, strict=False)
+            logging.info("Pre-trained model weights loaded successfully.")
+        except Exception as e:
+            logging.error(f"Failed to load pre-trained model weights: {e}")
+            sys.exit(1)
+    else:
+        logging.info(f'No pre-trained model sepcified')
 
     logging.info(f"Model moved to device: {next(model.parameters()).device}") 
     if torch.cuda.is_available():
